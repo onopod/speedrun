@@ -22,6 +22,13 @@ export const OBSTACLES: Obstacle[] = [
   ...[40, 110, 185, 270, 345, 420, 505, 575].map((s, i) => ({ s, x: i % 2 ? 3.8 : -3.8, w: 1.8, d: 2, h: 2.3, moving: i % 2 === 1 })),
 ];
 export const GAPS = [{ start: 145, end: 151 }, { start: 305, end: 311 }, { start: 465, end: 471 }, { start: 605, end: 611 }];
+export const BOOST_PADS = [28, 174, 330, 490].map((s, i) => ({ s, x: i % 2 ? -3.4 : 3.4, w: 2, d: 4 }));
+export type SpeedMode = "normal" | "slow" | "manual" | "star" | "pad";
+export function speedMode(r: Pick<RunState, "boost" | "padBoost">, input: Pick<Input, "boost" | "slow">): SpeedMode {
+  if (input.boost && input.slow) return "normal";
+  if (input.slow) return "slow";
+  return r.boost > 0 ? "star" : r.padBoost > 0 ? "pad" : input.boost ? "manual" : "normal";
+}
 export type CourseItem = { s: number; x: number; y: number; boost: boolean };
 // Smooth crests and valleys, with level starts/checkpoints/finish approaches.
 const ELEVATION = [[0, 0], [25, 0], [82, 13], [158, 0], [215, 16], [318, 0], [380, 18], [478, 0], [540, 21], [630, 0], [660, 0]];
@@ -45,15 +52,15 @@ export function finishGrade(coins: number, deaths: number): FinishGrade {
 }
 export type RunState = {
   phase: RunPhase; s: number; x: number; y: number; vy: number; grounded: boolean;
-  time: number; checkpoint: number; deaths: number; coins: number; boost: number;
+  time: number; checkpoint: number; deaths: number; coins: number; boost: number; padBoost: number; activePad: number; lastPad: number;
   respawn: number; collected: Set<number>; jumpBuffer: number; coyote: number; speed: number;
   jumpWasDown: boolean; jumpActive: boolean; jumpHold: number; jumpLevel: 0 | 1 | 2 | 3;
   lookTime: number; lookCooldown: number; lookDirection: number;
 };
 export type Input = { steer: number; boost: boolean; slow: boolean; jump: boolean; jumpPressed?: boolean; targetX?: number };
-export type RunEvent = "jump" | "jump-medium" | "jump-large" | "miss" | "land" | "coin" | "boost" | "hit" | "respawn" | "checkpoint" | "finish";
+export type RunEvent = "jump" | "jump-medium" | "jump-large" | "miss" | "land" | "coin" | "boost" | "hit" | "respawn" | "checkpoint" | "finish" | "pad";
 export function newRun(): RunState {
-  return { phase: "running", s: 0, x: 0, y: 0, vy: 0, grounded: true, time: 0, checkpoint: 0, deaths: 0, coins: 0, boost: 0, respawn: 0, collected: new Set(), jumpBuffer: 0, coyote: .1, speed: RUN_SPEED, jumpWasDown: false, jumpActive: false, jumpHold: 0, jumpLevel: 0, lookTime: 0, lookCooldown: 0, lookDirection: 0 };
+  return { phase: "running", s: 0, x: 0, y: 0, vy: 0, grounded: true, time: 0, checkpoint: 0, deaths: 0, coins: 0, boost: 0, padBoost: 0, activePad: -1, lastPad: -1, respawn: 0, collected: new Set(), jumpBuffer: 0, coyote: .1, speed: RUN_SPEED, jumpWasDown: false, jumpActive: false, jumpHold: 0, jumpLevel: 0, lookTime: 0, lookCooldown: 0, lookDirection: 0 };
 }
 export function jumpLevelForHold(seconds: number): 1 | 2 | 3 { return seconds + 1e-9 >= LARGE_HOLD ? 3 : seconds + 1e-9 >= MEDIUM_HOLD ? 2 : 1; }
 export function headLookYaw(r: Pick<RunState, "lookTime" | "lookDirection">) {
@@ -87,8 +94,9 @@ export function stepRun(r: RunState, input: Input, dt = STEP, items: readonly Co
   }
   r.lookTime = Math.max(0, r.lookTime - dt); r.lookCooldown = Math.max(0, r.lookCooldown - dt);
   r.boost = Math.max(0, r.boost - dt);
+  r.padBoost = Math.max(0, r.padBoost - dt);
   // Holding a direction selects one fixed speed; opposing inputs cancel.
-  r.speed = (input.boost && input.slow ? 12 : input.slow ? 10 : r.boost > 0 ? 18 : input.boost ? 16 : 12) * SPEED_SCALE * hillSpeedFactor(r.s);
+  r.speed = (input.boost && input.slow ? 12 : input.slow ? 10 : r.boost > 0 ? 18 : input.boost || r.padBoost > 0 ? 16 : 12) * SPEED_SCALE * hillSpeedFactor(r.s);
   const previousS = r.s;
   r.s = Math.min(COURSE_LENGTH, r.s + r.speed * dt);
   const lateral = input.targetX === undefined ? Math.max(-1, Math.min(1, input.steer)) * 7.5 * dt : Math.max(-14 * dt, Math.min(14 * dt, input.targetX - r.x));
@@ -125,11 +133,14 @@ export function stepRun(r: RunState, input: Input, dt = STEP, items: readonly Co
   const hit = OBSTACLES.some(o => Math.abs(r.s - o.s) < o.d / 2 + .32 && Math.abs(r.x - obstacleX(o, r.time)) < o.w / 2 + .32 && r.y < o.h && r.y > -1.8);
   if (hit || r.y < -5) {
     r.deaths++; r.s = r.checkpoint ? CHECKPOINTS[r.checkpoint - 1] + 2 : 0;
-    r.x = 0; r.y = 0; r.vy = 0; r.grounded = true; r.boost = 0; r.jumpBuffer = 0; r.coyote = .1;
+    r.x = 0; r.y = 0; r.vy = 0; r.grounded = true; r.boost = 0; r.padBoost = 0; r.activePad = -1; r.jumpBuffer = 0; r.coyote = .1;
     r.jumpActive = false; r.jumpHold = 0; r.jumpLevel = 0; r.lookTime = 0; r.lookCooldown = 0;
     r.phase = "respawning"; r.respawn = .85; events.push("hit");
     return events;
   }
+  const pad = r.grounded ? BOOST_PADS.findIndex(p => Math.abs(r.s - p.s) < p.d / 2 && Math.abs(r.x - p.x) < p.w / 2 + .25) : -1;
+  if (pad >= 0 && pad !== r.activePad) { r.padBoost = 1.2; r.lastPad = pad; events.push("pad"); }
+  r.activePad = pad;
   items.forEach((item, i) => {
     if (!r.collected.has(i) && Math.abs(r.s - item.s) < .85 && Math.abs(r.x - item.x) < 1 && Math.abs(r.y + 1 - item.y) < 1.35) {
       r.collected.add(i); r.coins++;
