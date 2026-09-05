@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, hasDatabase } from "@/lib/db";
 import { generateGuestName } from "@/lib/guest-rules";
 
 export const GUEST_COOKIE = "speedrun_guest_v2";
@@ -52,5 +52,5 @@ export async function guestResponse(request: Request) {
 export function validOrigin(request: Request) { return request.headers.get("origin") === new URL(request.url).origin; }
 export function databaseFailure(error: unknown) {
   const code = (error as { cause?: { code?: string }; code?: string })?.cause?.code ?? (error as { code?: string })?.code;
-  return !process.env.DATABASE_URL ? "DATABASE_NOT_CONFIGURED" : code === "42501" ? "DATABASE_SCHEMA_PERMISSION" : "DATABASE_UNAVAILABLE";
+  return !hasDatabase ? "DATABASE_NOT_CONFIGURED" : code === "42501" ? "DATABASE_SCHEMA_PERMISSION" : "DATABASE_UNAVAILABLE";
 }

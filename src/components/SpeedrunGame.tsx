@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { createAutorunScene, type GameHandle, type Hud, type RunResult } from "@/lib/autorun-scene";
 import { COURSE_LENGTH } from "@/lib/autorun";
 import { normalizeGuestName } from "@/lib/guest-rules";
+import { localPlayer, rememberPlayer, queuedRuns, queueRun, removeQueuedRun } from "@/lib/local-player";
 
 type Guest = { id: string; name: string };
 type Score = { id: string; name: string; timeMs: number; coins: number; playerId: string };
@@ -14,7 +15,14 @@ function getGuest() {
   // Deduplicate mount/StrictMode/save requests so guest cookies cannot race.
   guestRequest ??= fetch("/api/player", { cache: "no-store" }).then(async response => {
     if (!response.ok) { const info = await response.json().catch(() => ({})); console.warn("player.service", response.status, info.code ?? "REQUEST_FAILED"); throw new Error("名前の取得に失敗しました。接続を確認して再試行してください。"); }
-    return response.json() as Promise<Guest>;
+    let player = await response.json() as Guest;
+    const local = localPlayer();
+    if (local.needsSync) {
+      const renamed = await fetch("/api/player", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: local.name }) });
+      if (!renamed.ok) throw new Error("名前の同期を待っています。");
+      player = await renamed.json();
+    }
+    rememberPlayer(player, false); return player;
   }).catch(error => { guestRequest = undefined; throw error; });
   return guestRequest;
 }
@@ -25,6 +33,7 @@ export default function SpeedrunGame() {
   const pauseBeforeEdit = useRef(false);
   const [hud, setHud] = useState(initialHud);
   const [guest, setGuest] = useState<Guest | null>(null), [guestError, setGuestError] = useState("");
+  const [connectionNotice, setConnectionNotice] = useState("");
   const [scores, setScores] = useState<Score[]>([]), [scoresStatus, setScoresStatus] = useState("ランキングを読み込み中…");
   const [muted, setMuted] = useState(false), [renderError, setRenderError] = useState("");
   const [editing, setEditing] = useState(false), [draft, setDraft] = useState(""), [nameSaving, setNameSaving] = useState(false);
@@ -40,8 +49,8 @@ export default function SpeedrunGame() {
     } catch { if (alive.current) setScoresStatus("ランキングは現在接続できません。"); }
   }, []);
   const loadGuest = useCallback(async () => {
-    try { const player = await getGuest(); if (alive.current) { setGuest(player); setGuestError(""); } return player; }
-    catch (error) { if (alive.current) setGuestError(error instanceof Error ? error.message : "名前を取得できません。"); return null; }
+    try { const player = await getGuest(); if (alive.current) { setGuest(player); setGuestError(""); setConnectionNotice(""); } return player; }
+    catch { if (alive.current) { setGuest(localPlayer()); setConnectionNotice("ランキング接続待ち。名前はこの端末で利用できます。"); } return null; }
   }, []);
   const save = useCallback(async (run: RunResult) => {
     if (savingIds.current.has(run.runId)) return;
@@ -56,23 +65,28 @@ export default function SpeedrunGame() {
         if (response.status === 401) guestRequest = undefined;
         throw new Error(data.error || "保存できませんでした。再送信してください。");
       }
+      removeQueuedRun(run.runId);
       if (alive.current && pending.current?.runId === run.runId) { setSaveStatus("saved"); pending.current = null; }
       await loadScores();
     } catch (error) {
-      if (alive.current && pending.current?.runId === run.runId) { setSaveStatus("error"); setSaveError(error instanceof Error ? error.message : "通信エラーです。"); }
+      const retained = queueRun(run);
+      if (alive.current && pending.current?.runId === run.runId) { setSaveStatus("error"); setSaveError(retained ? "記録をこの端末に保存しました。ランキングへの送信は接続待ちです。" : error instanceof Error ? error.message : "通信エラーです。"); }
     } finally { savingIds.current.delete(run.runId); }
   }, [loadScores]);
   useEffect(() => {
     alive.current = true;
+    setGuest(localPlayer());
     void loadGuest(); void loadScores();
+    const retryQueue = async () => { for (const run of queuedRuns()) await save(run); };
+    void retryQueue();
     if (mount.current) {
       try {
         game.current = createAutorunScene(mount.current, setHud, run => {
-          pending.current = run; setResult(run); void save(run);
+          pending.current = run; queueRun(run); setResult(run); void save(run);
         }, () => { setResult(null); setSaveStatus("idle"); setSaveError(""); });
       } catch { setRenderError("3D画面を起動できません。ブラウザのハードウェアアクセラレーションを確認してください。"); }
     }
-    const online = () => { void loadGuest(); void loadScores(); if (pending.current) void save(pending.current); };
+    const online = () => { void loadGuest(); void loadScores(); void retryQueue(); if (pending.current) void save(pending.current); };
     window.addEventListener("online", online);
     return () => { alive.current = false; game.current?.dispose(); game.current = null; window.removeEventListener("online", online); };
   }, [loadGuest, loadScores, save]);
@@ -88,8 +102,12 @@ export default function SpeedrunGame() {
       const response = await fetch("/api/player", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
       const data = await response.json();
       if (!response.ok) { if (response.status === 401) guestRequest = undefined; throw new Error(data.error); }
-      guestRequest = Promise.resolve(data); setGuest(data); setGuestError(""); closeEditor(); void loadScores();
-    } catch (error) { setGuestError(error instanceof Error ? error.message : "変更できませんでした。"); }
+      guestRequest = Promise.resolve(data); rememberPlayer(data, false); setGuest(data); setGuestError(""); setConnectionNotice(""); closeEditor(); void loadScores();
+    } catch {
+      const local = { ...localPlayer(), name };
+      const retained = rememberPlayer(local, true); guestRequest = undefined;
+      setGuest(local); setGuestError(""); setConnectionNotice(retained ? "名前をこの端末に保存しました。ランキングとの同期は接続待ちです。" : "名前を一時変更しました。この端末では保存できません。"); closeEditor();
+    }
     finally { setNameSaving(false); }
   };
   const rankList = <div className="ranking"><h2>WORLD TOP 10 <small>RIVER RUN / 自己ベスト</small></h2><ol>{scores.length ? scores.map(score => <li key={score.id} className={score.playerId === guest?.id ? "my-score" : ""}><span>{score.name}{score.playerId === guest?.id && <small> YOU</small>}</span><b>{formatTime(score.timeMs)}</b></li>) : <li className="empty">{scoresStatus}</li>}</ol></div>;
@@ -117,7 +135,7 @@ export default function SpeedrunGame() {
       {renderError && <p className="error" role="alert">{renderError}</p>}
       <p className="fineprint">ミスしてもチェックポイントから自動復帰。<br />名前は自動発行、記録も自動保存。ログイン不要。{hud.software && <><br />この端末ではGPUなしの簡易3D描画で動作しています。</>}</p>
       <details><summary>コントローラー・音声について</summary><p>Bluetoothは端末の設定でペアリング後、ボタンを押してください。Start / Menuで最初から。音声は最初の画面操作後に再生します。</p><a href="/audio-credits.txt" target="_blank" rel="noopener noreferrer">音声クレジット・ライセンス</a></details>
-      {guestError && <p className="error">{guestError} <button className="text-button" onClick={() => void loadGuest()}>再試行</button></p>}
+      {connectionNotice && <p className="fineprint" role="status">{connectionNotice} <button className="text-button" onClick={() => void loadGuest()}>再接続</button></p>}
     </div></div>}
     {hud.phase === "finished" && !editing && result && <div className="overlay"><div className="card result-card">
       <div className="eyebrow">RIVER RUN / COMPLETE</div><h1>FINISH<span>{formatTime(result.timeMs)}</span></h1>
