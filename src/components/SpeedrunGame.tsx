@@ -147,7 +147,7 @@ export default function SpeedrunGame() {
       onPointerCancel={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} onLostPointerCapture={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} />}
     {hud.phase === "running" && !hud.paused && !editing && ["manual", "star", "pad"].includes(hud.speedMode) && <div className="speed-fx" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} style={{ left: `${i < 6 ? 2 + i * 2.8 : 84 + (i - 6) * 2.8}%`, top: `${13 + (i * 17 % 63)}%`, animationDelay: `${-(i * .073)}s`, height: `${36 + i % 4 * 15}px` }} />)}</div>}
     <header className="hud">
-      <div className="brand">SKY <b>RUSH</b><small>スカイラッシュ / SKYLINE v5 / FX</small></div>
+      <div className="brand">瞬足<b>ラン</b><small>shun-soku run</small></div>
       <div className="timer">{formatTime(hud.time)}<small>{hud.speedMode === "star" ? "STAR BOOST!" : hud.speedMode === "pad" ? "PAD BOOST!" : hud.speedMode === "manual" ? "ACCEL!" : hud.phase === "running" ? "AUTO RUN" : "TIME ATTACK"}</small></div>
       <div className="status"><span className={hud.gamepad ? "online" : ""}>{hud.gamepad ? "● GAMEPAD" : "● NO LOGIN"}</span><span>★ {hud.coins} <i>/ 60</i></span></div>
     </header>
@@ -172,7 +172,7 @@ export default function SpeedrunGame() {
       <button className="primary" onClick={() => game.current?.pause(false)}>{hud.phase === "running" || hud.phase === "respawning" ? "▶ 走行を再開" : "設定を閉じる"}</button>
     </div></div>}
     {hud.phase === "ready" && !editing && !hud.paused && <div className="overlay intro"><div className="card">
-      <div className="eyebrow">SKY RUSH / 640 M</div><h1>駆け上がれ。<br /><span>空へ、跳べ。</span></h1>
+      <div className="eyebrow">瞬足ラン shun-soku run / 640 M</div><h1>駆け上がれ。<br /><span>空へ、跳べ。</span></h1>
       <p className="lead">光る空中コースを、ジェットコースターのように。<br />上りはじわり、下りは一気に。左右とジャンプで駆け抜けよう。</p>
       <div className="howto"><div><b>01 / STEER</b><span className="desktop-instruction">A D ・ 左スティック</span><span className="mobile-instruction">← 左右にスワイプ →</span></div><div><b>02 / JUMP</b><span className="desktop-instruction">SPACE ・ A / ×</span><span className="mobile-instruction">JUMP ボタン</span><small>タップで小・少し押して中・長押しで大</small></div><div><b>03 / SPEED</b><span className="desktop-instruction">W / S ・ スティック前後</span><span className="mobile-instruction">▲ 前 / ▼ 後ろ</span><small>押している間だけ1段階加減速</small></div><div><b>04 / COLLECT</b>緑のスター・青の加速・橙の加速板<small>水色のラインが全回収の道しるべ</small></div></div>
       <button className="primary" disabled={Boolean(renderError)} onClick={e => { start(); e.currentTarget.blur(); }}>走り出す <span>→</span></button>
@@ -183,7 +183,7 @@ export default function SpeedrunGame() {
     </div></div>}
     {hud.phase === "finished" && !editing && !hud.paused && result && hud.finishTime < 2.8 && <div className="finish-celebration" role="status"><small>{reaction.label}</small><b>{reaction.title}</b><span>★ {result.coins} / 60 · RETRY {result.deaths}</span></div>}
     {hud.phase === "finished" && !editing && !hud.paused && result && hud.finishTime >= 2.8 && <div className="overlay result-overlay"><div className="card result-card">
-      <div className="eyebrow">SKY RUSH / {reaction.label}</div><h1 className="finish-title">{reaction.title}<span>{formatTime(result.timeMs)}</span></h1>
+      <div className="eyebrow">瞬足ラン shun-soku run / {reaction.label}</div><h1 className="finish-title">{reaction.title}<span>{formatTime(result.timeMs)}</span></h1>
       <p className="reaction-label">{reaction.action}</p>
       <p className="result-summary">★ {result.coins} 個獲得 <span>RETRY {hud.deaths}</span></p>
       <div className="saved-name"><b>{guest?.name ?? "ゲスト"}</b><button className="text-button" onClick={editName}>名前を変更</button></div>
