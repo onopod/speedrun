@@ -131,7 +131,7 @@ test('short guest names and anonymous run validation reject malformed records', 
 
 
 test('the visible reference route collects all 60 stars with human-sized timing tolerance', () => {
-  for (const offset of [-.75, 0, .75]) {
+  for (const offset of [-2, -.75, 0, .75, 1]) {
     const r = newRun(); let next = 0, hold = 0;
     while (r.phase !== 'finished' && r.time < 70) {
       if (next < JUMP_MARKERS.length && r.s >= JUMP_MARKERS[next].s + offset && r.grounded) { hold = .32; next++; }
