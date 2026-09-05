@@ -1,10 +1,13 @@
 // Simulation uses course distance/lateral offset, independent of the curved renderer.
-export const COURSE_ID = "osaka-river-v2";
+export const COURSE_ID = "osaka-river-v3";
 export const COURSE_LENGTH = 640;
 export const ROAD_HALF_WIDTH = 5.2;
 export const CHECKPOINTS = [160, 320, 480];
 export const JUMP_SPEED = 13;
 export const GRAVITY = 22;
+export const FALL_GRAVITY = 30;
+export const SPEED_SCALE = 1.3;
+export const RUN_SPEED = 12 * SPEED_SCALE;
 export const STEP = 1 / 120;
 export type RunPhase = "ready" | "running" | "respawning" | "finished";
 export type Obstacle = { s: number; x: number; w: number; d: number; h: number; moving?: boolean };
@@ -34,10 +37,23 @@ export type RunState = {
   time: number; checkpoint: number; deaths: number; coins: number; boost: number;
   respawn: number; collected: Set<number>; jumpBuffer: number; coyote: number; speed: number;
 };
-export type Input = { steer: number; boost: boolean; slow: boolean; jump: boolean };
+export type Input = { steer: number; boost: boolean; slow: boolean; jump: boolean; targetX?: number };
 export type RunEvent = "jump" | "land" | "coin" | "boost" | "hit" | "respawn" | "checkpoint" | "finish";
 export function newRun(): RunState {
-  return { phase: "running", s: 0, x: 0, y: 0, vy: 0, grounded: true, time: 0, checkpoint: 0, deaths: 0, coins: 0, boost: 0, respawn: 0, collected: new Set(), jumpBuffer: 0, coyote: .1, speed: 12 };
+  return { phase: "running", s: 0, x: 0, y: 0, vy: 0, grounded: true, time: 0, checkpoint: 0, deaths: 0, coins: 0, boost: 0, respawn: 0, collected: new Set(), jumpBuffer: 0, coyote: .1, speed: RUN_SPEED };
+}
+export function slideTarget(x: number, fraction: number) {
+  return Math.max(-ROAD_HALF_WIDTH + .4, Math.min(ROAD_HALF_WIDTH - .4, x + fraction * (ROAD_HALF_WIDTH * 2 - .8)));
+}
+// Exact constant-acceleration integration, splitting a step that crosses the apex.
+export function airborneMotion(y: number, velocity: number, dt: number) {
+  const upTime = velocity > 0 ? Math.min(dt, velocity / GRAVITY) : 0;
+  y += velocity * upTime - .5 * GRAVITY * upTime * upTime;
+  velocity -= GRAVITY * upTime;
+  const downTime = dt - upTime;
+  y += velocity * downTime - .5 * FALL_GRAVITY * downTime * downTime;
+  velocity -= FALL_GRAVITY * downTime;
+  return { y, velocity };
 }
 export function stepRun(r: RunState, input: Input, dt = STEP): RunEvent[] {
   const events: RunEvent[] = [];
@@ -49,9 +65,10 @@ export function stepRun(r: RunState, input: Input, dt = STEP): RunEvent[] {
     return events;
   }
   r.boost = Math.max(0, r.boost - dt);
-  r.speed = r.boost > 0 ? 18 : input.boost ? 16 : input.slow ? 10 : 12;
+  r.speed = (r.boost > 0 ? 18 : input.boost ? 16 : input.slow ? 10 : 12) * SPEED_SCALE;
   r.s = Math.min(COURSE_LENGTH, r.s + r.speed * dt);
-  r.x = Math.max(-ROAD_HALF_WIDTH + .4, Math.min(ROAD_HALF_WIDTH - .4, r.x + Math.max(-1, Math.min(1, input.steer)) * 7.5 * dt));
+  const lateral = input.targetX === undefined ? Math.max(-1, Math.min(1, input.steer)) * 7.5 * dt : Math.max(-14 * dt, Math.min(14 * dt, input.targetX - r.x));
+  r.x = Math.max(-ROAD_HALF_WIDTH + .4, Math.min(ROAD_HALF_WIDTH - .4, r.x + lateral));
   r.jumpBuffer = input.jump ? .12 : Math.max(0, r.jumpBuffer - dt);
   r.coyote = r.grounded ? .1 : Math.max(0, r.coyote - dt);
   if (r.jumpBuffer > 0 && r.coyote > 0) {
@@ -60,7 +77,8 @@ export function stepRun(r: RunState, input: Input, dt = STEP): RunEvent[] {
   const hasFloor = !GAPS.some(g => r.s > g.start && r.s < g.end);
   const previousY = r.y;
   if (!r.grounded || !hasFloor) {
-    r.vy -= GRAVITY * dt; r.y += r.vy * dt; r.grounded = false;
+    const motion = airborneMotion(r.y, r.vy, dt);
+    r.vy = motion.velocity; r.y = motion.y; r.grounded = false;
     if (hasFloor && previousY >= 0 && r.y <= 0 && r.vy <= 0) {
       r.y = 0; r.vy = 0; r.grounded = true; events.push("land");
     }

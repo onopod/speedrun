@@ -1,14 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import { createAutorunScene, type GameHandle, type Hud, type RunResult } from "@/lib/autorun-scene";
-import { COURSE_LENGTH } from "@/lib/autorun";
+import { COURSE_LENGTH, RUN_SPEED } from "@/lib/autorun";
 import { normalizeGuestName } from "@/lib/guest-rules";
 import { localPlayer, rememberPlayer, queuedRuns, queueRun, removeQueuedRun } from "@/lib/local-player";
 
 type Guest = { id: string; name: string };
 type Score = { id: string; name: string; timeMs: number; coins: number; playerId: string };
-const initialHud: Hud = { phase: "ready", time: 0, distance: 0, checkpoint: 0, coins: 0, deaths: 0, speed: 12, boost: false, height: 0, gamepad: false, input: "keyboard", paused: false, software: false };
+const initialHud: Hud = { phase: "ready", time: 0, distance: 0, checkpoint: 0, coins: 0, deaths: 0, speed: RUN_SPEED, boost: false, height: 0, gamepad: false, input: "keyboard", paused: false, software: false };
 const formatTime = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${(ms % 60000 / 1000).toFixed(2).padStart(5, "0")}`;
 let guestRequest: Promise<Guest> | undefined;
 function getGuest() {
@@ -31,6 +31,7 @@ export default function SpeedrunGame() {
   const mount = useRef<HTMLDivElement>(null), game = useRef<GameHandle | null>(null);
   const pending = useRef<RunResult | null>(null), savingIds = useRef(new Set<string>()), alive = useRef(false);
   const pauseBeforeEdit = useRef(false);
+  const swipe = useRef<{ id: number; x: number } | null>(null);
   const [hud, setHud] = useState(initialHud);
   const [guest, setGuest] = useState<Guest | null>(null), [guestError, setGuestError] = useState("");
   const [connectionNotice, setConnectionNotice] = useState("");
@@ -40,6 +41,7 @@ export default function SpeedrunGame() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState("");
   const [result, setResult] = useState<RunResult | null>(null);
+  useEffect(() => { if (hud.phase !== "running" || hud.paused || editing) swipe.current = null; }, [hud.phase, hud.paused, editing]);
   const loadScores = useCallback(async () => {
     try {
       const response = await fetch("/api/leaderboard", { cache: "no-store" });
@@ -111,12 +113,22 @@ export default function SpeedrunGame() {
     finally { setNameSaving(false); }
   };
   const rankList = <div className="ranking"><h2>WORLD TOP 10 <small>RIVER RUN / 自己ベスト</small></h2><ol>{scores.length ? scores.map(score => <li key={score.id} className={score.playerId === guest?.id ? "my-score" : ""}><span>{score.name}{score.playerId === guest?.id && <small> YOU</small>}</span><b>{formatTime(score.timeMs)}</b></li>) : <li className="empty">{scoresStatus}</li>}</ol></div>;
-  const touchButton = (key: "left" | "right" | "jump" | "boost", label: string, text: string) => <button aria-label={label} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); game.current?.touch(key, true); }} onPointerUp={e => { game.current?.touch(key, false); e.currentTarget.blur(); }} onPointerCancel={() => game.current?.touch(key, false)} onLostPointerCapture={() => game.current?.touch(key, false)}>{text}</button>;
+  const touchButton = (key: "jump" | "boost", label: string, text: string) => <button aria-label={label} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); game.current?.touch(key, true); }} onPointerUp={e => { game.current?.touch(key, false); e.currentTarget.blur(); }} onPointerCancel={() => game.current?.touch(key, false)} onLostPointerCapture={() => game.current?.touch(key, false)}>{text}</button>;
+  const slide = (e: PointerEvent<HTMLDivElement>) => {
+    if (swipe.current?.id !== e.pointerId) return;
+    const width = e.currentTarget.clientWidth;
+    if (width > 0) game.current?.slide((e.clientX - swipe.current.x) / (width * .65));
+    swipe.current.x = e.clientX;
+  };
 
   return <section className={`game-shell ${hud.boost ? "boosting" : ""}`}>
     <div ref={mount} className="scene-mount" />
+    {hud.phase === "running" && !editing && !hud.paused && <div className="swipe-surface" role="region" aria-label="左右スワイプ操作エリア"
+      onPointerDown={e => { if (e.button !== 0 || swipe.current) return; e.preventDefault(); swipe.current = { id: e.pointerId, x: e.clientX }; e.currentTarget.setPointerCapture(e.pointerId); }}
+      onPointerMove={slide} onPointerUp={e => { slide(e); if (swipe.current?.id === e.pointerId) swipe.current = null; }}
+      onPointerCancel={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} onLostPointerCapture={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} />}
     <header className="hud">
-      <div className="brand">NEON SPRINT <b>OSAKA</b><small>RIVER RUN — AUTO RUN v2</small></div>
+      <div className="brand">NEON SPRINT <b>OSAKA</b><small>RIVER RUN — AUTO RUN v3</small></div>
       <div className="timer">{formatTime(hud.time)}<small>{hud.boost ? "BOOST!" : hud.phase === "running" ? "AUTO RUN" : "TIME ATTACK"}</small></div>
       <div className="status"><span className={hud.gamepad ? "online" : ""}>{hud.gamepad ? "● GAMEPAD" : "● NO LOGIN"}</span><span>◆ {hud.coins} <i>/ 60</i></span></div>
     </header>
@@ -124,13 +136,14 @@ export default function SpeedrunGame() {
     <div className="utility"><button onClick={e => { const value = !muted; setMuted(value); game.current?.mute(value); e.currentTarget.blur(); }} aria-label={muted ? "音をオン" : "音をミュート"}>{muted ? "♪ OFF" : "♪ ON"}</button>{(hud.phase === "running" || hud.phase === "respawning") && <button onClick={e => { game.current?.pause(!hud.paused); e.currentTarget.blur(); }} aria-label={hud.paused ? "走行を再開" : "一時停止"}>{hud.paused ? "▶" : "Ⅱ"}</button>}</div>
     <div className="checkpoint"><p>CHECKPOINT <b>{hud.checkpoint}</b> / 3 <span>{Math.floor(hud.distance)} / {COURSE_LENGTH} m</span></p><div className="progress"><i style={{ width: `${hud.distance / COURSE_LENGTH * 100}%` }} />{[25, 50, 75].map(p => <em key={p} style={{ left: `${p}%` }} />)}</div><small>{Math.round(hud.speed * 3.6)} km/h · RETRY {hud.deaths} · JUMP {Math.max(0, hud.height).toFixed(1)} m</small></div>
     <div className="controls"><span>A D / ← → 左右</span><span>SPACE ジャンプ</span><span>W 加速 / S 減速</span><span>R 最初から</span></div>
-    {(hud.phase === "running" || hud.phase === "respawning") && !editing && !hud.paused && <div className="touch-controls"><div>{touchButton("left", "左へ移動", "←")}{touchButton("right", "右へ移動", "→")}</div><div>{touchButton("boost", "加速", "⚡")}{touchButton("jump", "ジャンプ", "JUMP")}</div></div>}
+    {(hud.phase === "running" || hud.phase === "respawning") && !editing && !hud.paused && <div className="touch-controls"><div>{touchButton("boost", "加速", "⚡")}{touchButton("jump", "ジャンプ", "JUMP")}</div></div>}
+    {hud.phase === "running" && !editing && !hud.paused && hud.time < 6500 && <div className="swipe-guide" role="status"><span className="swipe-arrow left" aria-hidden="true">‹‹</span><div><span className="swipe-hand" aria-hidden="true">☝</span><b>左右にスワイプ</b><small>指をすべらせて移動</small></div><span className="swipe-arrow right" aria-hidden="true">››</span></div>}
     {hud.phase === "respawning" && !editing && <div className="respawn-notice" role="status"><b>もう一度、ここから。</b><span>{hud.checkpoint ? `CHECKPOINT ${hud.checkpoint}` : "START"} から自動で再開</span></div>}
     {hud.paused && !editing && hud.phase !== "ready" && <div className="pause-notice"><button onClick={() => game.current?.pause(false)}>▶ 走行を再開</button></div>}
     {hud.phase === "ready" && !editing && <div className="overlay intro"><div className="card">
       <div className="eyebrow">OSAKA NIGHT / 640 M</div><h1>曲がれ。<br /><span>跳べ。走れ。</span></h1>
       <p className="lead">大阪の夜を、ジェットコースターのように。<br />進むのは自動。左右とジャンプで道を切り開こう。</p>
-      <div className="howto"><div><b>01 / STEER</b>A D ・ 左スティック</div><div><b>02 / JUMP</b>SPACE ・ A / ×</div><div><b>03 / BOOST</b>W / SHIFT ・ B / ○</div><div><b>04 / COLLECT</b>緑のダイヤと青の加速</div></div>
+      <div className="howto"><div><b>01 / STEER</b><span className="desktop-instruction">A D ・ 左スティック</span><span className="mobile-instruction">← 左右にスワイプ →</span></div><div><b>02 / JUMP</b><span className="desktop-instruction">SPACE ・ A / ×</span><span className="mobile-instruction">JUMP ボタン</span></div><div><b>03 / BOOST</b><span className="desktop-instruction">W / SHIFT ・ B / ○</span><span className="mobile-instruction">⚡ ボタンを押す</span></div><div><b>04 / COLLECT</b>緑のダイヤと青の加速</div></div>
       <button className="primary" disabled={Boolean(renderError)} onClick={e => { start(); e.currentTarget.blur(); }}>走り出す <span>→</span></button>
       {renderError && <p className="error" role="alert">{renderError}</p>}
       <p className="fineprint">ミスしてもチェックポイントから自動復帰。<br />名前は自動発行、記録も自動保存。ログイン不要。{hud.software && <><br />この端末ではGPUなしの簡易3D描画で動作しています。</>}</p>

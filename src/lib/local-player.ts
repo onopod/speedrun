@@ -1,9 +1,10 @@
 import { generateGuestName, normalizeGuestName, parseRun } from "./guest-rules";
 import type { RunResult } from "./autorun-scene";
+import { COURSE_ID } from "./autorun";
 
 type LocalPlayer = { id: string; name: string; needsSync: boolean };
 let memoryPlayer: LocalPlayer | undefined;
-const PLAYER_KEY = "speedrun.player.v2", RUNS_KEY = "speedrun.pending.v2";
+const PLAYER_KEY = "speedrun.player.v2", RUNS_KEY = "speedrun.pending.v3";
 function read(key: string): unknown { try { return JSON.parse(localStorage.getItem(key) ?? "null"); } catch { return null; } }
 function write(key: string, value: unknown) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } }
 export function localPlayer(): LocalPlayer {
@@ -19,7 +20,7 @@ export function rememberPlayer(player: { id: string; name: string }, needsSync: 
 }
 export function queuedRuns(): RunResult[] {
   const saved = read(RUNS_KEY);
-  return Array.isArray(saved) ? saved.filter(run => parseRun(run)).slice(-20) : [];
+  return Array.isArray(saved) ? saved.filter(run => parseRun(run, COURSE_ID)).slice(-20) : [];
 }
 export function queueRun(run: RunResult) { return write(RUNS_KEY, [...queuedRuns().filter(r => r.runId !== run.runId), run].slice(-20)); }
 export function removeQueuedRun(id: string) { write(RUNS_KEY, queuedRuns().filter(r => r.runId !== id)); }
