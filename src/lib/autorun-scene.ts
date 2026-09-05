@@ -37,7 +37,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   }
   const software = renderer instanceof SVGRenderer;
   renderer.setSize(mount.clientWidth, mount.clientHeight);
-  renderer.domElement.classList.add("game-canvas"); renderer.domElement.setAttribute("aria-label", "坂とカーブを駆け抜けるSKY RUSHの3Dゲーム");
+  renderer.domElement.classList.add("game-canvas"); renderer.domElement.setAttribute("aria-label", "坂とカーブを駆け抜ける瞬足ラン shun-soku runの3Dゲーム");
   mount.appendChild(renderer.domElement);
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x061411); scene.fog = new THREE.FogExp2(0x061411, .0065);
   const camera = new THREE.PerspectiveCamera(64, mount.clientWidth / mount.clientHeight, .1, 350);

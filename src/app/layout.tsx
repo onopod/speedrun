@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SKY RUSH | スカイラッシュ",
+  title: "瞬足ラン shun-soku run",
   description: "坂とカーブを駆け抜けるWebGLランゲーム。WASD・スワイプ・ゲームパッドで全60スターを集めよう。",
 };
 
