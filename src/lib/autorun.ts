@@ -1,3 +1,5 @@
+import { CLASSIC_COURSE, type Course } from "./courses.ts";
+export { COURSES, CLASSIC_COURSE, findCourse, type Course } from "./courses.ts";
 // Simulation uses course distance/lateral offset, independent of the curved renderer.
 export const COURSE_ID = "sky-rush-v5";
 export const COURSE_LENGTH = 640;
@@ -14,15 +16,11 @@ export const SPEED_SCALE = 1.3;
 export const RUN_SPEED = 12 * SPEED_SCALE;
 export const STEP = 1 / 120;
 export type RunPhase = "ready" | "running" | "respawning" | "finished";
-export type Obstacle = { s: number; x: number; w: number; d: number; h: number; moving?: boolean };
-// Jump hazards are spaced for the longest downhill flight; outer-lane blocks
-// keep shortcut choices interesting without interrupting the collection route.
-export const OBSTACLES: Obstacle[] = [
-  ...[72, 225, 385, 545].map((s, i) => ({ s, x: 0, w: 10.4, d: 1, h: 1.3 + i * .15 })),
-  ...[40, 110, 185, 270, 345, 420, 505, 575].map((s, i) => ({ s, x: i % 2 ? 3.8 : -3.8, w: 1.8, d: 2, h: 2.3, moving: i % 2 === 1 })),
-];
-export const GAPS = [{ start: 145, end: 151 }, { start: 305, end: 311 }, { start: 465, end: 471 }, { start: 605, end: 611 }];
-export const BOOST_PADS = [28, 174, 330, 490].map((s, i) => ({ s, x: i % 2 ? -3.4 : 3.4, w: 2, d: 4 }));
+export type { Obstacle } from "./courses.ts";
+import type { Obstacle } from "./courses.ts";
+export const OBSTACLES = CLASSIC_COURSE.obstacles;
+export const GAPS = CLASSIC_COURSE.gaps;
+export const BOOST_PADS = CLASSIC_COURSE.pads;
 export type SpeedMode = "normal" | "slow" | "manual" | "star" | "pad";
 export function speedMode(r: Pick<RunState, "boost" | "padBoost">, input: Pick<Input, "boost" | "slow">): SpeedMode {
   if (input.boost && input.slow) return "normal";
@@ -31,19 +29,21 @@ export function speedMode(r: Pick<RunState, "boost" | "padBoost">, input: Pick<I
 }
 export type CourseItem = { s: number; x: number; y: number; boost: boolean };
 // Smooth crests and valleys, with level starts/checkpoints/finish approaches.
-const ELEVATION = [[0, 0], [25, 0], [82, 13], [158, 0], [215, 16], [318, 0], [380, 18], [478, 0], [540, 21], [630, 0], [660, 0]];
-export function elevationAt(s: number) {
+
+export function elevationAt(s: number, course: Course = CLASSIC_COURSE) {
+  const ELEVATION = course.elevation;
   const i = ELEVATION.findIndex(([distance]) => distance > s);
   if (i <= 0) return { height: i === 0 ? 0 : ELEVATION.at(-1)![1], slope: 0 };
   const [a, ya] = ELEVATION[i - 1], [b, yb] = ELEVATION[i], t = (s - a) / (b - a);
   return { height: ya + (yb - ya) * (1 - Math.cos(Math.PI * t)) / 2, slope: (yb - ya) * Math.PI * Math.sin(Math.PI * t) / (2 * (b - a)) };
 }
-export function hillSpeedFactor(s: number) {
-  const { slope } = elevationAt(s);
+export function hillSpeedFactor(s: number, course: Course = CLASSIC_COURSE) {
+  const { slope } = elevationAt(s, course);
   return slope >= 0 ? 1 - Math.min(.09, slope * .23) : 1 + Math.min(.7, -slope * 2);
 }
-export function coursePoint(s: number) {
-  return { x: 26 * Math.sin(s / 65) + 12 * Math.sin(s / 32), y: elevationAt(s).height, z: -s };
+export function coursePoint(s: number, course: Course = CLASSIC_COURSE) {
+  const [a, b, c, d] = course.curve;
+  return { x: a * Math.sin(s / b) + c * Math.sin(s / d), y: elevationAt(s, course).height, z: -s };
 }
 export function obstacleX(o: Obstacle, time: number) { return o.moving ? o.x + Math.sin(time * 1.5 + o.s) * .4 : o.x; }
 export type FinishGrade = "great" | "good" | "retry";
@@ -81,7 +81,8 @@ export function airborneMotion(y: number, velocity: number, dt: number) {
   velocity -= FALL_GRAVITY * downTime;
   return { y, velocity };
 }
-export function stepRun(r: RunState, input: Input, dt = STEP, items: readonly CourseItem[] = ITEMS): RunEvent[] {
+export function stepRun(r: RunState, input: Input, dt = STEP, items: readonly CourseItem[] = ITEMS, course: Course = CLASSIC_COURSE): RunEvent[] {
+  const { length: COURSE_LENGTH, obstacles: OBSTACLES, gaps: GAPS, pads: BOOST_PADS, checkpoints: CHECKPOINTS } = course;
   const events: RunEvent[] = [];
   if (r.phase === "finished" || r.phase === "ready") return events;
   const jumpPressed = Boolean(input.jumpPressed) || (input.jump && !r.jumpWasDown);
@@ -96,7 +97,7 @@ export function stepRun(r: RunState, input: Input, dt = STEP, items: readonly Co
   r.boost = Math.max(0, r.boost - dt);
   r.padBoost = Math.max(0, r.padBoost - dt);
   // Holding a direction selects one fixed speed; opposing inputs cancel.
-  r.speed = (input.boost && input.slow ? 12 : input.slow ? 10 : r.boost > 0 ? 18 : input.boost || r.padBoost > 0 ? 16 : 12) * SPEED_SCALE * hillSpeedFactor(r.s);
+  r.speed = (input.boost && input.slow ? 12 : input.slow ? 10 : r.boost > 0 ? 18 : input.boost || r.padBoost > 0 ? 16 : 12) * SPEED_SCALE * hillSpeedFactor(r.s, course);
   const previousS = r.s;
   r.s = Math.min(COURSE_LENGTH, r.s + r.speed * dt);
   const lateral = input.targetX === undefined ? Math.max(-1, Math.min(1, input.steer)) * 7.5 * dt : Math.max(-14 * dt, Math.min(14 * dt, input.targetX - r.x));
@@ -158,41 +159,48 @@ export function stepRun(r: RunState, input: Input, dt = STEP, items: readonly Co
 
 // A human-playable reference: follow the center ribbon and hold a large jump
 // at each launch marker. Only normal forward speed is used, including pickups.
-export function routeX(s: number) { return Math.sin(s / 39) * 1.15; }
-export function nextJumpHazard(s: number) {
+export function routeX(s: number, course: Course = CLASSIC_COURSE) { return Math.sin(s / course.route[1]) * course.route[0]; }
+export function nextJumpHazard(s: number, course: Course = CLASSIC_COURSE) {
+  const { obstacles: OBSTACLES, gaps: GAPS } = course;
   return Math.min(...OBSTACLES.filter(o => o.w > 8 && o.s > s).map(o => o.s - o.d / 2), ...GAPS.filter(g => g.end > s).map(g => g.start));
 }
-export function guideInput(r: RunState): Input {
-  const hazard = nextJumpHazard(r.s);
+export function guideInput(r: RunState, course: Course = CLASSIC_COURSE): Input {
+  const hazard = nextJumpHazard(r.s, course);
   const jump = r.jumpActive && r.jumpHold < .32 || r.grounded && hazard > r.s && hazard - r.s < r.speed * .53;
-  return { steer: 0, targetX: routeX(r.s), boost: false, slow: false, jump };
+  return { steer: 0, targetX: routeX(r.s, course), boost: false, slow: false, jump };
 }
 export type GuidePoint = { s: number; x: number; y: number };
 export type LaunchPoint = GuidePoint & { landing: number };
-function traceRoute(items: readonly CourseItem[]) {
+function traceRoute(items: readonly CourseItem[], course: Course) {
   const r = newRun(), points: GuidePoint[] = [], launches: LaunchPoint[] = [];
   for (let i = 0; i < 120 * 100 && r.phase !== "finished"; i++) {
-    const events = stepRun(r, guideInput(r), STEP, items);
+    const events = stepRun(r, guideInput(r, course), STEP, items, course);
     points.push({ s: r.s, x: r.x, y: r.y });
     if (events.includes("jump")) launches.push({ s: r.s, x: r.x, y: 0, landing: r.s });
     if (events.includes("land") && launches.length) launches.at(-1)!.landing = r.s;
-    if (r.deaths) throw new Error("The reference route hit a course hazard");
+    if (r.deaths) throw new Error(`${course.id}: reference route hit a hazard at ${points.at(-2)?.s}`);
   }
   return { points, launches, run: r };
 }
-function buildCollectionRoute() {
-  let items: CourseItem[] = Array.from({ length: 60 }, (_, i) => ({ s: 20 + i * 10, x: routeX(20 + i * 10), y: 1, boost: [0, 14, 21, 30, 46, 59].includes(i) }));
+function buildCollectionRoute(course: Course) {
+  let items: CourseItem[] = Array.from({ length: 60 }, (_, i) => ({ s: 20 + i * (course.length - 50) / 59, x: routeX(20 + i * (course.length - 50) / 59, course), y: 1, boost: [0, 14, 21, 30, 46, 59].includes(i) }));
   // Refine the raised stars against the actual flight/boost trajectory. Wide
   // pickup windows make this converge, then replay the complete route in tests.
   for (let pass = 0; pass < 4; pass++) {
-    const { points } = traceRoute(items);
+    const { points } = traceRoute(items, course);
     items = items.map(item => { const p = points.find(p => p.s >= item.s)!; return { ...item, x: p.x, y: p.y + 1 }; });
   }
-  const trace = traceRoute(items);
+  const trace = traceRoute(items, course);
   if (trace.run.coins !== items.length) throw new Error("The collection route must reach every star");
   return { items, points: trace.points.filter((_, i) => i % 4 === 0), launches: trace.launches };
 }
-const collectionRoute = buildCollectionRoute();
+const routeCache = new Map<string, ReturnType<typeof buildCollectionRoute>>();
+export function getCollectionRoute(course: Course) {
+  let route = routeCache.get(course.id);
+  if (!route) { route = buildCollectionRoute(course); routeCache.set(course.id, route); }
+  return route;
+}
+const collectionRoute = getCollectionRoute(CLASSIC_COURSE);
 export const ITEMS = collectionRoute.items;
 export const IDEAL_ROUTE = collectionRoute.points;
 export const JUMP_MARKERS = collectionRoute.launches;

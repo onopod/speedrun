@@ -1,3 +1,4 @@
+import { findCourse } from "./courses.ts";
 export function normalizeGuestName(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const name = value.normalize("NFKC").trim();
@@ -12,10 +13,10 @@ export function generateGuestName(a: number, b: number) {
 export function parseRun(body: unknown, expectedCourse?: string) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const { runId, timeMs, input, coins, course } = body as Record<string, unknown>;
-  if (expectedCourse && course !== expectedCourse) return null;
+  if (!findCourse(course) || expectedCourse && course !== expectedCourse) return null;
   if (typeof runId !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(runId)) return null;
   if (typeof timeMs !== "number" || !Number.isFinite(timeMs) || timeMs < 25_000 || timeMs > 3_600_000) return null;
   if (input !== "keyboard" && input !== "gamepad" && input !== "touch") return null;
   if (typeof coins !== "number" || !Number.isInteger(coins) || coins < 0 || coins > 60) return null;
-  return { runId, timeMs: Math.round(timeMs), input, coins };
+  return { runId, timeMs: Math.round(timeMs), input, coins, course: course as string };
 }

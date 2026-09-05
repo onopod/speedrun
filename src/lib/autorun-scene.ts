@@ -1,17 +1,21 @@
 import * as THREE from "three";
 import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
-import { BOOST_PADS, speedMode, type SpeedMode, CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, IDEAL_ROUTE, JUMP_MARKERS, elevationAt, finishGrade, coursePoint, headLookYaw, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
+import { CLASSIC_COURSE, getCollectionRoute, type Course, speedMode, type SpeedMode, ROAD_HALF_WIDTH, RUN_SPEED, STEP, elevationAt, finishGrade, coursePoint, headLookYaw, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
 import { createRunner, type RunnerVariant } from "./runner-model";
 import { EffectsScene } from "./run-effects-scene";
 import type { FxAnchor } from "./run-effects";
+import { spaceAction } from "./run-keyboard";
 import { GameAudio } from "./game-audio";
 
 export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; jumpLevel: RunState["jumpLevel"]; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean; finishTime: number; slope: number; nextJump: number; speedMode: SpeedMode };
 export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string; course: string; deaths: number };
-export type GameHandle = { start(): void; configure(character: RunnerVariant, guide: boolean): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost" | "slow", down: boolean): void; dispose(): void };
+export type GameHandle = { start(): void; ready(): void; configure(character: RunnerVariant, guide: boolean): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost" | "slow", down: boolean): void; dispose(): void };
 
+export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void, onFinish: (result: RunResult) => void, onStart: () => void, course: Course = CLASSIC_COURSE): GameHandle {
+  const { length: COURSE_LENGTH, id: COURSE_ID, gaps: GAPS, pads: BOOST_PADS, checkpoints: CHECKPOINTS, obstacles: OBSTACLES } = course;
+  const { items: ITEMS, points: IDEAL_ROUTE, launches: JUMP_MARKERS } = getCollectionRoute(course);
 function frameAt(s: number) {
-  const p = coursePoint(s), a = coursePoint(s - .1), b = coursePoint(s + .1);
+  const p = coursePoint(s, course), a = coursePoint(s - .1, course), b = coursePoint(s + .1, course);
   const back = new THREE.Vector3(a.x - b.x, a.y - b.y, a.z - b.z).normalize();
   const right = new THREE.Vector3(back.z, 0, -back.x).normalize();
   const up = new THREE.Vector3().crossVectors(back, right);
@@ -25,7 +29,6 @@ function effectAnchor(s: number, x = 0, y = 0): FxAnchor {
   return { position: f.position.addScaledVector(f.right, x).addScaledVector(f.up, y), right: f.right, up: f.up, back: new THREE.Vector3(0, 0, 1).applyQuaternion(f.quaternion) };
 }
 
-export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void, onFinish: (result: RunResult) => void, onStart: () => void): GameHandle {
   let renderer: THREE.WebGLRenderer | SVGRenderer;
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -39,11 +42,11 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   renderer.setSize(mount.clientWidth, mount.clientHeight);
   renderer.domElement.classList.add("game-canvas"); renderer.domElement.setAttribute("aria-label", "坂とカーブを駆け抜ける瞬足ラン shun-soku runの3Dゲーム");
   mount.appendChild(renderer.domElement);
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x061411); scene.fog = new THREE.FogExp2(0x061411, .0065);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(course.sky); scene.fog = new THREE.FogExp2(course.sky, .0065);
   const camera = new THREE.PerspectiveCamera(64, mount.clientWidth / mount.clientHeight, .1, 350);
   scene.add(new THREE.HemisphereLight(0xc9ffef, 0x1d2929, 2.8));
   const sun = new THREE.DirectionalLight(0xffffff, 3.5); sun.position.set(-15, 28, 12); scene.add(sun);
-  const roadMat = new THREE.MeshStandardMaterial({ color: 0x182824, roughness: .7, metalness: .25, side: THREE.DoubleSide });
+  const roadMat = new THREE.MeshStandardMaterial({ color: course.road, roughness: .7, metalness: .25, side: THREE.DoubleSide });
   const lime = new THREE.MeshStandardMaterial({ color: 0x93ff45, emissive: 0x459d16, emissiveIntensity: 1.5 });
   const cyan = new THREE.MeshStandardMaterial({ color: 0x51f4db, emissive: 0x138b87, emissiveIntensity: 1.2 });
   const pink = new THREE.MeshStandardMaterial({ color: 0xff526f, emissive: 0x80132a, emissiveIntensity: .8 });
@@ -59,7 +62,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   }
   const roadGeometry = new THREE.BufferGeometry(); roadGeometry.setAttribute("position", new THREE.Float32BufferAttribute(roadVertices, 3)); roadGeometry.computeVertexNormals();
   scene.add(new THREE.Mesh(roadGeometry, roadMat));
-  for (const [vertices, color] of [[lines, 0xa0ff54], [lanes, 0x3e7061]] as const) {
+  for (const [vertices, color] of [[lines, course.accent], [lanes, 0x3e7061]] as const) {
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
     scene.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color })));
   }
@@ -129,7 +132,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const dummy = new THREE.Object3D();
   const softwareBuildings: THREE.Mesh[] = [];
   for (let i = 0; i < 180; i++) {
-    const s = i * 4 - 12, x = (i % 2 ? -1 : 1) * (15 + i % 5 * 5), h = 7 + (i * 13 % 28), w = 4 + i % 4;
+    const s = i * (COURSE_LENGTH + 60) / 180 - 12, x = (i % 2 ? -1 : 1) * (15 + i % 5 * 5), h = 7 + (i * 13 % 28), w = 4 + i % 4;
     dummy.position.copy(world(s, x)); dummy.position.y += h / 2 - 9; dummy.quaternion.copy(frameAt(s).quaternion); dummy.scale.set(w, h, w);
     dummy.updateMatrix(); buildings.setMatrixAt(i, dummy.matrix);
     if (software) { const building = new THREE.Mesh(buildings.geometry, buildings.material); building.position.copy(dummy.position); building.quaternion.copy(dummy.quaternion); building.scale.copy(dummy.scale); building.userData.s = s; scene.add(building); softwareBuildings.push(building); }
@@ -160,23 +163,31 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const effects = new EffectsScene(software, window.matchMedia("(prefers-reduced-motion: reduce)").matches); scene.add(effects.root);
   const shownPickups = new Set<number>();
   let currentSpeedMode: SpeedMode = "normal";
-  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: currentSpeedMode === "star" || currentSpeedMode === "pad", height: state.y, jumpLevel: state.jumpLevel, gamepad, input: inputType, paused, software, finishTime, speedMode: currentSpeedMode, slope: elevationAt(state.s).slope, nextJump: (JUMP_MARKERS.find(p => p.s > state.s - 1)?.s ?? COURSE_LENGTH + 100) - state.s });
+  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: currentSpeedMode === "star" || currentSpeedMode === "pad", height: state.y, jumpLevel: state.jumpLevel, gamepad, input: inputType, paused, software, finishTime, speedMode: currentSpeedMode, slope: elevationAt(state.s, course).slope, nextJump: (JUMP_MARKERS.find(p => p.s > state.s - 1)?.s ?? COURSE_LENGTH + 100) - state.s });
   const start = () => {
     state = newRun(); finishTime = 0; currentSpeedMode = "normal"; effects.model.clear(); shownPickups.clear(); padGlows.fill(0); clear(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false; swipeTarget = undefined;
     diamonds.forEach(d => { d.visible = true; }); audio.unlock(); onStart(); publish();
   };
+  let spaceNeedsRelease = false;
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.target instanceof HTMLElement && e.target.closest("input,textarea,select,button,[contenteditable='true']")) return;
+    if (e.target instanceof HTMLElement && e.target.closest("input,textarea,select,button,a,summary,[role=dialog],[contenteditable='true']")) return;
     if (["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyW", "KeyA", "KeyS", "KeyD"].includes(e.code)) e.preventDefault();
-    keys.add(e.code);
-    if (e.code === "Space" && !e.repeat) jumpQueued = true;
     if (e.repeat) return;
+    if (e.code === "KeyP" || e.code === "Escape") { paused = !paused; clear(); publish(); return; }
+    if (paused) return;
     audio.unlock();
-    if ((e.code === "Space" || e.code === "Enter") && state.phase === "ready") start();
-    else if (e.code === "KeyR") start();
-    else if (e.code === "KeyP" || e.code === "Escape") { paused = !paused; clear(); publish(); }
+    if (e.code === "Space") {
+      const action = spaceAction(state.phase, paused, finishTime, e.repeat, spaceNeedsRelease);
+      if (action === "start") { start(); spaceNeedsRelease = true; return; }
+      if (action === "none") return;
+    }
+    if (e.code === "Enter" && (state.phase === "ready" || state.phase === "finished" && finishTime >= 2.8)) { start(); return; }
+    if (e.code === "KeyR") { start(); return; }
+    if (e.code === "Space" && spaceNeedsRelease) return;
+    keys.add(e.code);
+    if (e.code === "Space") jumpQueued = true;
   };
-  const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
+  const onKeyUp = (e: KeyboardEvent) => { keys.delete(e.code); if (e.code === "Space") spaceNeedsRelease = false; };
   const clear = () => { keys.clear(); touches.clear(); jumpQueued = false; swipeTarget = undefined; };
   const visibility = () => { clear(); accumulator = 0; last = performance.now(); if (document.hidden) audio.pause(); };
   window.addEventListener("keydown", onKeyDown, { passive: false }); window.addEventListener("keyup", onKeyUp);
@@ -211,7 +222,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     if (!paused) {
       accumulator += dt;
       while (accumulator >= STEP) {
-        const events = stepRun(state, input); accumulator -= STEP; jumpQueued = false; input.jumpPressed = false;
+        const events = stepRun(state, input, STEP, ITEMS, course); accumulator -= STEP; jumpQueued = false; input.jumpPressed = false;
         currentSpeedMode = speedMode(state, input);
         const anchor = effectAnchor(state.s, state.x, state.y);
         effects.model.advance(STEP, anchor, currentSpeedMode, state.phase === "running", state.grounded, state.speed);
@@ -270,12 +281,13 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     effects.render(camera);
     renderer.domElement.setAttribute("data-vfx-particles", String(effects.model.count));
     renderer.domElement.setAttribute("data-speed-mode", currentSpeedMode);
+    renderer.domElement.setAttribute("data-course", COURSE_ID);
     renderer.render(scene, camera);
     if (now - hudAt > 90) { publish(); hudAt = now; }
   };
   frame = requestAnimationFrame(animate);
   return {
-    start, configure(variant, enabled) { character = variant; showGuide = enabled; }, mute: value => audio.mute(value),
+    start, ready() { start(); state.phase = "ready"; audio.pause(); publish(); }, configure(variant, enabled) { character = variant; showGuide = enabled; }, mute: value => audio.mute(value),
     pause(value) { paused = value; clear(); publish(); },
     slide(fraction) { if (paused || state.phase !== "running" || !Number.isFinite(fraction)) return; swipeTarget = slideTarget(swipeTarget ?? state.x, fraction); inputType = "touch"; },
     touch(key, down) { if (down && !paused && state.phase === "running") { touches.add(key); if (key === "jump") jumpQueued = true; inputType = "touch"; audio.unlock(); } else touches.delete(key); },
