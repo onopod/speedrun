@@ -1,9 +1,10 @@
 import * as THREE from "three";
+import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
 import { CHECKPOINTS, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, STEP, coursePoint, newRun, obstacleX, stepRun, type RunState, type Input } from "./autorun";
 import { createRunner } from "./runner-model";
 import { GameAudio } from "./game-audio";
 
-export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean };
+export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean };
 export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string };
 export type GameHandle = { start(): void; mute(value: boolean): void; pause(value: boolean): void; touch(key: "left" | "right" | "jump" | "boost", down: boolean): void; dispose(): void };
 
@@ -18,10 +19,18 @@ function frameAt(s: number) {
 function world(s: number, x = 0, y = 0) { const f = frameAt(s); return f.position.addScaledVector(f.right, x).addScaledVector(f.up, y); }
 
 export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void, onFinish: (result: RunResult) => void, onStart: () => void): GameHandle {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7)); renderer.setSize(mount.clientWidth, mount.clientHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.domElement.className = "game-canvas"; renderer.domElement.setAttribute("aria-label", "カーブする大阪コースを背面から走る3Dゲーム");
+  let renderer: THREE.WebGLRenderer | SVGRenderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.7));
+    renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  } catch {
+    // Keep the same 3D scene/physics usable when a device has disabled its GPU.
+    renderer = new SVGRenderer(); renderer.setQuality("low");
+  }
+  const software = renderer instanceof SVGRenderer;
+  renderer.setSize(mount.clientWidth, mount.clientHeight);
+  renderer.domElement.classList.add("game-canvas"); renderer.domElement.setAttribute("aria-label", "カーブする大阪コースを背面から走る3Dゲーム");
   mount.appendChild(renderer.domElement);
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x061411); scene.fog = new THREE.FogExp2(0x061411, .0065);
   const camera = new THREE.PerspectiveCamera(64, mount.clientWidth / mount.clientHeight, .1, 350);
@@ -75,15 +84,17 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const buildings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x122e29, roughness: .8 }), 180);
   const windows = new THREE.InstancedMesh(new THREE.BoxGeometry(1, .12, 1), new THREE.MeshBasicMaterial({ color: 0x4c9982 }), 720);
   const dummy = new THREE.Object3D();
+  const softwareBuildings: THREE.Mesh[] = [];
   for (let i = 0; i < 180; i++) {
     const s = i * 4 - 12, x = (i % 2 ? -1 : 1) * (15 + i % 5 * 5), h = 7 + (i * 13 % 28), w = 4 + i % 4;
     dummy.position.copy(world(s, x)); dummy.position.y += h / 2 - 9; dummy.quaternion.copy(frameAt(s).quaternion); dummy.scale.set(w, h, w);
     dummy.updateMatrix(); buildings.setMatrixAt(i, dummy.matrix);
+    if (software) { const building = new THREE.Mesh(buildings.geometry, buildings.material); building.position.copy(dummy.position); building.quaternion.copy(dummy.quaternion); building.scale.copy(dummy.scale); building.userData.s = s; scene.add(building); softwareBuildings.push(building); }
     for (let j = 0; j < 4; j++) {
       dummy.position.copy(world(s, x)); dummy.position.y += h * (j + 1) / 5 - 9; dummy.scale.set(w + .04, 1, w + .04); dummy.updateMatrix(); windows.setMatrixAt(i * 4 + j, dummy.matrix);
     }
   }
-  scene.add(buildings, windows);
+  if (!software) scene.add(buildings, windows);
   const towerMaterial = new THREE.MeshStandardMaterial({ color: 0x2a4f46, metalness: .5, roughness: .3 });
   // Stepped glass tower and illuminated observation tower evoke Osaka's skyline.
   for (let i = 0; i < 3; i++) { const t = new THREE.Mesh(new THREE.BoxGeometry(10 - i * 2, 20, 9 - i), towerMaterial); place(t, 285, -40 + i, i * 18 + 6); }
@@ -100,7 +111,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   let inputType: Hud["input"] = "keyboard", gamepad = false, padStart = false, padJump = false, cameraSnap = true;
   const keys = new Set<string>(), touches = new Set<string>();
   const audio = new GameAudio();
-  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, gamepad, input: inputType, paused });
+  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, gamepad, input: inputType, paused, software });
   const start = () => {
     state = newRun(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false;
     diamonds.forEach(d => { d.visible = true; }); audio.unlock(); onStart(); publish();
@@ -160,7 +171,8 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, input.steer, state.speed);
     shadow.position.copy(world(state.s, state.x, .035)); shadow.visible = state.y >= 0; shadow.scale.setScalar(Math.max(.3, 1 - state.y * .1));
     obstacles.forEach((o, i) => { if (OBSTACLES[i].moving) o.position.copy(world(OBSTACLES[i].s, obstacleX(OBSTACLES[i], state.time))); });
-    diamonds.forEach((diamond, i) => { diamond.visible = !state.collected.has(i); diamond.rotation.y = state.time * 2 + i; });
+    diamonds.forEach((diamond, i) => { diamond.visible = !state.collected.has(i) && (!software || Math.abs(ITEMS[i].s - state.s) < 100); diamond.rotation.y = state.time * 2 + i; });
+    softwareBuildings.forEach(b => { b.visible = b.userData.s > state.s - 25 && b.userData.s < state.s + 100; });
     gates.forEach((gate, i) => { gate.scale.setScalar(i < state.checkpoint ? 1.025 : 1); });
     cameraTarget.copy(world(state.s - 10, state.x * .32, 5.2));
     lookTarget.copy(world(state.s + 15, state.x * .15, 1.5));
@@ -181,7 +193,9 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
       window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", clear); document.removeEventListener("visibilitychange", visibility);
       const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
       scene.traverse(object => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) { geometries.add(object.geometry); (Array.isArray(object.material) ? object.material : [object.material]).forEach(m => materials.add(m)); } });
-      geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); renderer.dispose(); renderer.domElement.remove();
+      if (software) { geometries.add(windows.geometry); materials.add(windows.material as THREE.Material); }
+      geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose());
+      buildings.dispose(); windows.dispose(); if (renderer instanceof THREE.WebGLRenderer) renderer.dispose(); renderer.domElement.remove();
     },
   };
 }

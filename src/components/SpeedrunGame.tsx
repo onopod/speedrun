@@ -7,7 +7,7 @@ import { normalizeGuestName } from "@/lib/guest-rules";
 
 type Guest = { id: string; name: string };
 type Score = { id: string; name: string; timeMs: number; coins: number; playerId: string };
-const initialHud: Hud = { phase: "ready", time: 0, distance: 0, checkpoint: 0, coins: 0, deaths: 0, speed: 12, boost: false, height: 0, gamepad: false, input: "keyboard", paused: false };
+const initialHud: Hud = { phase: "ready", time: 0, distance: 0, checkpoint: 0, coins: 0, deaths: 0, speed: 12, boost: false, height: 0, gamepad: false, input: "keyboard", paused: false, software: false };
 const formatTime = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${(ms % 60000 / 1000).toFixed(2).padStart(5, "0")}`;
 let guestRequest: Promise<Guest> | undefined;
 function getGuest() {
@@ -48,7 +48,8 @@ export default function SpeedrunGame() {
     savingIds.current.add(run.runId);
     if (alive.current && pending.current?.runId === run.runId) { setSaveStatus("saving"); setSaveError(""); }
     try {
-      await getGuest();
+      const player = await getGuest();
+      if (alive.current) setGuest(player);
       const response = await fetch("/api/leaderboard", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(run) });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -114,7 +115,7 @@ export default function SpeedrunGame() {
       <div className="howto"><div><b>01 / STEER</b>A D ・ 左スティック</div><div><b>02 / JUMP</b>SPACE ・ A / ×</div><div><b>03 / BOOST</b>W / SHIFT ・ B / ○</div><div><b>04 / COLLECT</b>緑のダイヤと青の加速</div></div>
       <button className="primary" disabled={Boolean(renderError)} onClick={e => { start(); e.currentTarget.blur(); }}>走り出す <span>→</span></button>
       {renderError && <p className="error" role="alert">{renderError}</p>}
-      <p className="fineprint">ミスしてもチェックポイントから自動復帰。<br />名前は自動発行、記録も自動保存。ログイン不要。</p>
+      <p className="fineprint">ミスしてもチェックポイントから自動復帰。<br />名前は自動発行、記録も自動保存。ログイン不要。{hud.software && <><br />この端末ではGPUなしの簡易3D描画で動作しています。</>}</p>
       <details><summary>コントローラー・音声について</summary><p>Bluetoothは端末の設定でペアリング後、ボタンを押してください。Start / Menuで最初から。音声は最初の画面操作後に再生します。</p><a href="/audio-credits.txt" target="_blank" rel="noopener noreferrer">音声クレジット・ライセンス</a></details>
       {guestError && <p className="error">{guestError} <button className="text-button" onClick={() => void loadGuest()}>再試行</button></p>}
     </div></div>}
