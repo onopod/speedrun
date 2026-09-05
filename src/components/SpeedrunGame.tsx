@@ -13,7 +13,7 @@ let guestRequest: Promise<Guest> | undefined;
 function getGuest() {
   // Deduplicate mount/StrictMode/save requests so guest cookies cannot race.
   guestRequest ??= fetch("/api/player", { cache: "no-store" }).then(async response => {
-    if (!response.ok) throw new Error("名前の取得に失敗しました。接続を確認して再試行してください。");
+    if (!response.ok) { const info = await response.json().catch(() => ({})); console.warn("player.service", response.status, info.code ?? "REQUEST_FAILED"); throw new Error("名前の取得に失敗しました。接続を確認して再試行してください。"); }
     return response.json() as Promise<Guest>;
   }).catch(error => { guestRequest = undefined; throw error; });
   return guestRequest;

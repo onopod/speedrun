@@ -36,6 +36,8 @@ BluetoothコントローラーはOSで先にペアリングしてください。
 
 タッチ端末には左右・ジャンプ・加速ボタンを表示します。通常速度12、加速16、減速10、アイテム加速18。ジャンプ初速13・重力22で高さ約3.8m。物理は120Hz固定ステップ、タブ非表示中と名前編集中は停止します。
 
+WebGLが無効の環境ではThree.js SVGRendererによる簡易3D描画へ自動切り替えします。コース・キャラクター・物理は同じですが、GPU描画より低速で、建物の窓など一部の装飾を省略します。
+
 ## Anonymous identity and ranking
 
 `GET /api/player` が匿名プレイヤーを作成し、ランダム256bitトークンをHttpOnly / SameSite=Lax Cookieで保持します。DBにはトークンのSHA-256だけを保存。HTTPSではSecure属性を付けます。`PATCH /api/player` はCookieで所有者を確認し、変更後の名前は過去のv2記録にも反映します。Cookieを削除した場合や別ブラウザでは別プレイヤーになります。

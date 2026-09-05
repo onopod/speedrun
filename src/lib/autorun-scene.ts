@@ -108,18 +108,19 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(.65, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .4, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; scene.add(shadow);
   let state = newRun(); state.phase = "ready";
   let runId = "", last = performance.now(), accumulator = 0, frame = 0, hudAt = 0, paused = false, disposed = false;
-  let inputType: Hud["input"] = "keyboard", gamepad = false, padStart = false, padJump = false, cameraSnap = true;
+  let inputType: Hud["input"] = "keyboard", gamepad = false, padStart = false, padJump = false, cameraSnap = true, jumpQueued = false;
   const keys = new Set<string>(), touches = new Set<string>();
   const audio = new GameAudio();
   const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, gamepad, input: inputType, paused, software });
   const start = () => {
-    state = newRun(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false;
+    state = newRun(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false;
     diamonds.forEach(d => { d.visible = true; }); audio.unlock(); onStart(); publish();
   };
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target instanceof HTMLElement && e.target.closest("input,textarea,select,button,[contenteditable='true']")) return;
     if (["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyW", "KeyA", "KeyS", "KeyD"].includes(e.code)) e.preventDefault();
     keys.add(e.code);
+    if (e.code === "Space" && !e.repeat) jumpQueued = true;
     if (e.repeat) return;
     audio.unlock();
     if ((e.code === "Space" || e.code === "Enter") && state.phase === "ready") start();
@@ -127,7 +128,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     else if (e.code === "KeyP" || e.code === "Escape") { paused = !paused; publish(); }
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
-  const clear = () => { keys.clear(); touches.clear(); };
+  const clear = () => { keys.clear(); touches.clear(); jumpQueued = false; };
   const visibility = () => { clear(); accumulator = 0; last = performance.now(); if (document.hidden) audio.pause(); };
   window.addEventListener("keydown", onKeyDown, { passive: false }); window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", clear); document.addEventListener("visibilitychange", visibility);
@@ -149,14 +150,14 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     if (!editing && pad && (axis || vertical || pad.buttons.some(b => b.pressed))) inputType = "gamepad";
     const input: Input = {
       steer: editing ? 0 : Number(keys.has("KeyD") || keys.has("ArrowRight") || touches.has("right")) - Number(keys.has("KeyA") || keys.has("ArrowLeft") || touches.has("left")) + axis + Number(Boolean(pad?.buttons[15]?.pressed)) - Number(Boolean(pad?.buttons[14]?.pressed)),
-      jump: !editing && (keys.has("Space") || a || touches.has("jump")),
+      jump: !editing && (jumpQueued || keys.has("Space") || a || touches.has("jump")),
       boost: !editing && (keys.has("KeyW") || keys.has("ArrowUp") || keys.has("ShiftLeft") || Boolean(pad?.buttons[1]?.pressed) || Boolean(pad?.buttons[12]?.pressed) || vertical < -.5 || touches.has("boost")),
       slow: !editing && (keys.has("KeyS") || keys.has("ArrowDown") || Boolean(pad?.buttons[13]?.pressed) || vertical > .5),
     };
     if (!paused) {
       accumulator += dt;
       while (accumulator >= STEP) {
-        const events = stepRun(state, input); accumulator -= STEP;
+        const events = stepRun(state, input); accumulator -= STEP; jumpQueued = false;
         events.forEach(event => {
           audio.play(event);
           if (event === "hit") cameraSnap = true;
@@ -187,7 +188,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   return {
     start, mute: value => audio.mute(value),
     pause(value) { paused = value; clear(); publish(); },
-    touch(key, down) { if (down) { touches.add(key); inputType = "touch"; audio.unlock(); } else touches.delete(key); },
+    touch(key, down) { if (down) { touches.add(key); if (key === "jump") jumpQueued = true; inputType = "touch"; audio.unlock(); } else touches.delete(key); },
     dispose() {
       disposed = true; cancelAnimationFrame(frame); resize.disconnect(); audio.dispose();
       window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", clear); document.removeEventListener("visibilitychange", visibility);

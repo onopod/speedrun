@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { ensureGuestSchema, findGuest, guestResponse, validOrigin } from "@/lib/guest-store";
+import { databaseFailure, ensureGuestSchema, findGuest, guestResponse, validOrigin } from "@/lib/guest-store";
 import { normalizeGuestName } from "@/lib/guest-rules";
 
 export const runtime = "nodejs";
 export async function GET(request: Request) {
   try { return await guestResponse(request); }
-  catch { return NextResponse.json({ error: "名前を取得できませんでした。" }, { status: 503 }); }
+  catch (error) { return NextResponse.json({ error: "名前を取得できませんでした。", code: databaseFailure(error) }, { status: 503, headers: { "Cache-Control": "no-store" } }); }
 }
 export async function PATCH(request: Request) {
   if (!validOrigin(request)) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
