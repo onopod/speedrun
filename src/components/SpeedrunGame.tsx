@@ -182,7 +182,7 @@ export default function SpeedrunGame() {
       onPointerCancel={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} onLostPointerCapture={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} />}
     {hud.phase === "running" && !hud.paused && !editing && ["manual", "star", "pad"].includes(hud.speedMode) && <div className="speed-fx" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} style={{ left: `${i < 6 ? 2 + i * 2.8 : 84 + (i - 6) * 2.8}%`, top: `${13 + (i * 17 % 63)}%`, animationDelay: `${-(i * .073)}s`, height: `${36 + i % 4 * 15}px` }} />)}</div>}
     <header className="hud">
-      <div className="brand">SKY <b>RUSH</b><small>{course.name} / {course.subtitle}</small></div>
+      <div className="brand">瞬足<b>ラン</b><small>shun-soku run / {course.name}</small></div>
       <div className="timer">{formatTime(hud.time)}<small>{hud.speedMode === "star" ? "STAR BOOST!" : hud.speedMode === "pad" ? "PAD BOOST!" : hud.speedMode === "manual" ? "ACCEL!" : hud.phase === "running" ? "AUTO RUN" : "TIME ATTACK"}</small></div>
       <div className="status"><span className={hud.gamepad ? "online" : ""}>{hud.gamepad ? "● GAMEPAD" : "● NO LOGIN"}</span><span>★ {hud.coins} <i>/ 60</i></span></div>
     </header>
@@ -208,7 +208,7 @@ export default function SpeedrunGame() {
       <button className="primary" onClick={() => game.current?.pause(false)}>{hud.phase === "running" || hud.phase === "respawning" ? "▶ 走行を再開" : "設定を閉じる"}</button>
     </div></div>}
     {hud.phase === "ready" && !editing && !hud.paused && <div className="overlay intro stage-intro"><div className="card stage-card">
-      <div className="stage-heading"><div><div className="eyebrow">SKY RUSH / STAGE SELECT</div><h1>次は、どこを走る？</h1></div><span>8 COURSES<br /><small>すべてプレイ可能</small></span></div>
+      <div className="stage-heading"><div><div className="eyebrow">瞬足ラン / STAGE SELECT</div><h1>次は、どこを走る？</h1></div><span>8 COURSES<br /><small>すべてプレイ可能</small></span></div>
       <CourseSelect selected={course.id} onSelect={selectCourse} cleared={cleared} />
       <div className="selected-course"><div><b>{course.name}</b><Difficulty level={course.difficulty} /><span>{course.length} m · スター60個 · チェックポイント3か所</span></div><p>{course.description}</p>{cleared[course.id] && <small>この端末の自己ベスト {formatTime(cleared[course.id])}</small>}</div>
       <div className="stage-start"><button className="primary" disabled={!sceneReady || Boolean(renderError)} onClick={e => { start(); e.currentTarget.blur(); }}>ゲーム開始 <span>Space ↵</span></button></div>
