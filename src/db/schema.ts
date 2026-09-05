@@ -1,7 +1,7 @@
-import { bigint, index, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { bigserial, index, integer, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 
 export const scores = pgTable("speedrun_scores", {
-  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   playerName: varchar("player_name", { length: 16 }).notNull(),
   timeMs: integer("time_ms").notNull(),
   inputType: varchar("input_type", { length: 16 }).notNull().default("keyboard"),

@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { canLand, hitsSweeper } from "@/lib/game-rules";
 
 type Phase = "menu" | "running" | "finished";
 type Score = { id: number; name: string; timeMs: number; input: string };
@@ -45,19 +46,30 @@ export default function SpeedrunGame() {
   const [scores, setScores] = useState<Score[]>([]);
   const [playerName, setPlayerName] = useState("");
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const runIdRef = useRef(0);
+  const [scoreError, setScoreError] = useState("");
+  const [scoresStatus, setScoresStatus] = useState("記録を読み込み中…");
+  const [renderError, setRenderError] = useState("");
 
   const loadScores = useCallback(async () => {
     try {
       const response = await fetch("/api/leaderboard", { cache: "no-store" });
-      if (response.ok) setScores(await response.json());
-    } catch { /* Local/offline play remains available. */ }
+      if (!response.ok) throw new Error("unavailable");
+      setScores(await response.json());
+      setScoresStatus("まだ記録がありません。");
+    } catch { setScoresStatus("ランキングに接続できません。後でもう一度お試しください。"); }
   }, []);
 
   useEffect(() => { void loadScores(); }, [loadScores]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => {
     mutedRef.current = muted;
-    if (musicRef.current) musicRef.current.volume = muted ? 0 : .22;
+    if (musicRef.current) {
+      musicRef.current.volume = muted ? 0 : .22;
+      if (!muted && phaseRef.current === "running") void musicRef.current.play().catch(() => undefined);
+    }
   }, [muted]);
 
   useEffect(() => {
@@ -69,7 +81,15 @@ export default function SpeedrunGame() {
     scene.fog = new THREE.FogExp2(0x061009, 0.012);
     const camera = new THREE.PerspectiveCamera(62, mount.clientWidth / mount.clientHeight, 0.1, 600);
     camera.position.set(0, 6, 13);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    } catch {
+      setRenderError("WebGLを初期化できません。ブラウザのハードウェアアクセラレーションを確認してください。");
+      return;
+    }
+    let disposed = false;
+    let runnerTexture: THREE.Texture | undefined;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
@@ -138,6 +158,8 @@ export default function SpeedrunGame() {
     shadow.position.y = -1.15;
     player.add(shadow);
     new THREE.TextureLoader().load("/runner.webp", (texture) => {
+      if (disposed) { texture.dispose(); return; }
+      runnerTexture = texture;
       texture.colorSpace = THREE.SRGBColorSpace;
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
       sprite.scale.set(3.35, 3.35, 1);
@@ -149,8 +171,7 @@ export default function SpeedrunGame() {
     const checkpoints = [-55, -110, -160];
     checkpoints.forEach((z, index) => {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, .16, 12, 48), edgeMat.clone());
-      ring.position.set(floors[index + 1].x, 3.25, z);
-      ring.rotation.x = Math.PI / 2;
+      ring.position.set(index === 2 ? 1 : -2, 3.25, z);
       ring.userData.checkpoint = index + 1;
       scene.add(ring);
     });
@@ -164,6 +185,7 @@ export default function SpeedrunGame() {
       bar.position.y = .5;
       group.add(hub, bar);
       group.userData.speed = .9 + i * .22;
+      group.userData.width = 9 - i;
       scene.add(group);
       sweepers.push(group);
     });
@@ -221,6 +243,7 @@ export default function SpeedrunGame() {
     let startedAt = 0;
     let finalTime = 0;
     let lastPadA = false;
+    let lastPadStart = false;
     let lastFrame = performance.now();
     let uiTick = 0;
     let usedGamepad = false;
@@ -234,6 +257,10 @@ export default function SpeedrunGame() {
     };
 
     const startGame = () => {
+      runIdRef.current += 1;
+      usedGamepad = false;
+      setInputType("keyboard");
+      setScoreError("");
       currentCheckpoint = 0;
       setCheckpoint(0);
       setElapsed(0);
@@ -248,15 +275,19 @@ export default function SpeedrunGame() {
     restartRef.current = startGame;
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, button, [contenteditable='true']")) return;
       keys.add(event.code);
       if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
-      if (event.code === "KeyR") startGame();
+      if (event.code === "KeyR" && !event.repeat) startGame();
       if ((event.code === "Enter" || event.code === "Space") && phaseRef.current === "menu") startGame();
     };
     const onKeyUp = (event: KeyboardEvent) => keys.delete(event.code);
+    const clearKeys = () => keys.clear();
     const onPad = () => setGamepad(Boolean(navigator.getGamepads?.().find(Boolean)));
     window.addEventListener("keydown", onKeyDown, { passive: false });
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", clearKeys);
+    document.addEventListener("visibilitychange", clearKeys);
     window.addEventListener("gamepadconnected", onPad);
     window.addEventListener("gamepaddisconnected", onPad);
     onPad();
@@ -268,20 +299,23 @@ export default function SpeedrunGame() {
     };
     window.addEventListener("resize", onResize);
 
-    const clock = new THREE.Clock();
+    const targetCamera = new THREE.Vector3();
     let frame = 0;
     const animate = (now: number) => {
       frame = requestAnimationFrame(animate);
       const dt = Math.min((now - lastFrame) / 1000, .04);
       lastFrame = now;
-      const t = clock.getElapsedTime();
+      const t = phaseRef.current === "running" ? (now - startedAt) / 1000 : 0;
       sweepers.forEach((s) => { s.rotation.y = t * s.userData.speed; });
       movers.forEach((m) => { m.position.x = Math.sin(t * 1.4 + m.userData.phase) * 3.4; });
 
       const pad = navigator.getGamepads?.().find(Boolean);
       const padA = Boolean(pad?.buttons[0]?.pressed);
-      if (padA && !lastPadA && phaseRef.current !== "running") startGame();
+      const padStart = Boolean(pad?.buttons[9]?.pressed);
+      if (padA && !lastPadA && phaseRef.current === "menu") startGame();
+      if (padStart && !lastPadStart) startGame();
       lastPadA = padA;
+      lastPadStart = padStart;
 
       if (phaseRef.current === "running") {
         let x = 0, z = 0;
@@ -292,7 +326,8 @@ export default function SpeedrunGame() {
         if (pad) {
           const dead = (value: number) => Math.abs(value) > .16 ? value : 0;
           const px = dead(pad.axes[0] ?? 0), pz = dead(pad.axes[1] ?? 0);
-          if (px || pz || padA) { x += px; z += pz; usedGamepad = true; setInputType("gamepad"); }
+          x += px; z += pz;
+          if (!usedGamepad && (px || pz || pad?.buttons.some((button) => button.pressed))) { usedGamepad = true; setInputType("gamepad"); }
           if (pad.buttons[14]?.pressed) x -= 1;
           if (pad.buttons[15]?.pressed) x += 1;
           if (pad.buttons[12]?.pressed) z -= 1;
@@ -306,24 +341,25 @@ export default function SpeedrunGame() {
 
         const jump = keys.has("Space") || padA;
         if (jump && grounded) { velocityY = 8.3; grounded = false; play("jump"); }
+        const previousY = player.position.y;
         velocityY -= 20 * dt;
         player.position.y += velocityY * dt;
         const floor = floors.find((f) => Math.abs(player.position.x - f.x) <= f.w / 2 && Math.abs(player.position.z - f.z) <= f.d / 2);
-        if (floor && player.position.y <= 1.2 && velocityY <= 0) { player.position.y = 1.2; velocityY = 0; grounded = true; }
+        if (canLand(previousY, player.position.y, velocityY, Boolean(floor))) { player.position.y = 1.2; velocityY = 0; grounded = true; }
         else if (!floor) grounded = false;
 
         // Simple, deterministic obstacle volumes keep the course fair at any frame rate.
-        const hitSweeper = sweepers.some((s) => Math.abs(player.position.z - s.position.z) < .8 && Math.abs(player.position.x - s.position.x) < 4.8 && player.position.y < 2.3);
+        const hitSweeper = sweepers.some((s) => hitsSweeper(player.position.x - s.position.x, player.position.z - s.position.z, s.rotation.y, s.userData.width, player.position.y));
         const hitMover = movers.some((m) => Math.abs(player.position.z - m.position.z) < 1.5 && Math.abs(player.position.x - m.position.x) < 1.65 && player.position.y < 3.2);
         if (hitSweeper || hitMover || player.position.y < -8 || Math.abs(player.position.x) > 8.8) resetPosition(true);
 
         checkpoints.forEach((checkpointZ, index) => {
-          if (currentCheckpoint === index && player.position.z < checkpointZ) {
+          if (floor && player.position.y >= 1.2 && currentCheckpoint === index && player.position.z < checkpointZ) {
             currentCheckpoint = index + 1;
             setCheckpoint(currentCheckpoint);
           }
         });
-        if (player.position.z < -193 && currentCheckpoint === 3) {
+        if (floor && player.position.y >= 1.2 && player.position.z < -193 && currentCheckpoint === 3) {
           finalTime = now - startedAt;
           setElapsed(finalTime);
           setInputType(usedGamepad ? "gamepad" : "keyboard");
@@ -333,10 +369,10 @@ export default function SpeedrunGame() {
           play("finish");
           void loadScores();
         }
-        if (now - uiTick > 30) { setElapsed(now - startedAt); uiTick = now; }
+        if (phaseRef.current === "running" && now - uiTick > 30) { setElapsed(now - startedAt); uiTick = now; }
       }
 
-      const targetCamera = new THREE.Vector3(player.position.x * .45, player.position.y + 5.2, player.position.z + 11.5);
+      targetCamera.set(player.position.x * .45, player.position.y + 5.2, player.position.z + 11.5);
       camera.position.lerp(targetCamera, 1 - Math.pow(.002, dt));
       camera.lookAt(player.position.x * .2, player.position.y + .8, player.position.z - 7);
       player.rotation.y = Math.sin(t * 12) * (phaseRef.current === "running" ? .035 : .01);
@@ -345,12 +381,15 @@ export default function SpeedrunGame() {
     frame = requestAnimationFrame(animate);
 
     return () => {
+      disposed = true;
       cancelAnimationFrame(frame);
       music.pause();
       musicRef.current = null;
       Object.values(sounds).forEach((audio) => audio.pause());
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", clearKeys);
+      document.removeEventListener("visibilitychange", clearKeys);
       window.removeEventListener("gamepadconnected", onPad);
       window.removeEventListener("gamepaddisconnected", onPad);
       window.removeEventListener("resize", onResize);
@@ -362,25 +401,36 @@ export default function SpeedrunGame() {
         }
       });
       renderer.dispose();
+      runnerTexture?.dispose();
       mount.removeChild(renderer.domElement);
     };
   }, [loadScores]);
 
   const submitScore = async (event: FormEvent) => {
     event.preventDefault();
-    if (!playerName.trim() || saved) return;
-    const response = await fetch("/api/leaderboard", {
+    if (phaseRef.current !== "finished" || !playerName.trim() || saved || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setScoreError("");
+    const runId = runIdRef.current;
+    try {
+      const response = await fetch("/api/leaderboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: playerName, timeMs: elapsed, input: inputType }),
-    });
-    if (response.ok) { setSaved(true); await loadScores(); }
+      });
+      if (!response.ok) throw new Error(response.status === 400 ? "名前または記録を確認してください。" : "記録を保存できませんでした。再送信してください。");
+      if (runId === runIdRef.current) setSaved(true);
+      await loadScores();
+    } catch (error) {
+      if (runId === runIdRef.current) setScoreError(error instanceof Error ? error.message : "通信エラーです。再送信してください。");
+    } finally { savingRef.current = false; setSaving(false); }
   };
 
   return (
     <section className="game-shell">
       <div ref={mountRef} />
-      <div className="hud" aria-live="polite">
+      <div className="hud">
         <div className="brand">NEON SPRINT <b>OSAKA</b></div>
         <div className="timer">{formatTime(elapsed)}<small>{phase === "running" ? "RUNNING" : "TIME ATTACK"}</small></div>
         <div className="status">
@@ -388,7 +438,7 @@ export default function SpeedrunGame() {
           <span>INPUT: {inputType.toUpperCase()}</span>
         </div>
       </div>
-      <button className="mute" onClick={() => setMuted((value) => !value)} aria-label={muted ? "音をオン" : "音をミュート"}>{muted ? "🔇" : "🔊"}</button>
+      <button className="mute" onClick={(event) => { setMuted((value) => !value); event.currentTarget.blur(); }} aria-label={muted ? "音をオン" : "音をミュート"}>{muted ? "🔇" : "🔊"}</button>
       <div className="checkpoint"><p>CHECKPOINT {checkpoint} / 3</p><div className="progress"><i style={{ width: `${checkpoint / 3 * 100}%` }} /></div></div>
       <div className="controls"><span className="key">WASD 移動</span><span className="key">SPACE / A ジャンプ</span><span className="key">R リスタート</span></div>
 
@@ -400,7 +450,8 @@ export default function SpeedrunGame() {
           <div><b>⌨ KEYBOARD</b>WASD / 矢印で移動<br />SPACEでジャンプ</div>
           <div><b>🎮 CONTROLLER</b>左スティックで移動<br />Aボタンでジャンプ</div>
         </div>
-        <button className="primary" onClick={() => startRef.current()}>RUN START</button>
+        {renderError && <p role="alert">{renderError}</p>}
+        <button className="primary" disabled={Boolean(renderError)} onClick={(event) => { startRef.current(); event.currentTarget.blur(); }}>RUN START</button>
         <p className="lead" style={{ fontSize: 12, marginBottom: 0 }}>BluetoothコントローラーはPC・スマホの設定でペアリングしてからボタンを押してください。</p>
       </div></div>}
 
@@ -409,11 +460,12 @@ export default function SpeedrunGame() {
         <h1 style={{ fontSize: "clamp(34px,7vw,62px)" }}>FINISH <span>{formatTime(elapsed)}</span></h1>
         <form className="score-form" onSubmit={submitScore}>
           <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={16} placeholder="プレイヤー名" aria-label="プレイヤー名" />
-          <button type="submit" disabled={saved}>{saved ? "登録済" : "記録登録"}</button>
+          <button type="submit" disabled={saved || saving || !playerName.trim()}>{saved ? "登録済" : saving ? "送信中…" : "記録登録"}</button>
         </form>
-        <button className="primary" onClick={() => restartRef.current()}>RETRY</button>
+        {scoreError && <p role="alert">{scoreError}</p>}
+        <button className="primary" onClick={(event) => { restartRef.current(); event.currentTarget.blur(); }}>RETRY</button>
         <button className="secondary" onClick={() => { phaseRef.current = "menu"; setPhase("menu"); }}>メニューへ</button>
-        <div className="ranking"><h2>WORLD TOP 10</h2><ol>{scores.length ? scores.map((score) => <li key={score.id}>{score.name}<span>{formatTime(score.timeMs)}</span></li>) : <li>記録を読み込み中…</li>}</ol></div>
+        <div className="ranking"><h2>WORLD TOP 10</h2><ol>{scores.length ? scores.map((score) => <li key={score.id}>{score.name}<span>{formatTime(score.timeMs)}</span></li>) : <li>{scoresStatus}</li>}</ol></div>
       </div></div>}
     </section>
   );

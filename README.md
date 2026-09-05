@@ -28,7 +28,7 @@ BluetoothコントローラーはOSで先にペアリングしてください。
 |---|---|---|
 | Move | WASD / Arrow keys | Left stick / D-pad |
 | Jump | Space | A / Cross |
-| Restart | R | UI Retry |
+| Restart | R | Start / Menu |
 | Sprint | Left Shift | B / Circle |
 
 ## Audio credits
@@ -41,6 +41,13 @@ Audio is loaded from jsDelivr CDN at runtime.
 - `coin-flip.wav`: bone666138, Freesound, CC-BY 3.0
 
 Source bundle and detailed attribution: https://github.com/benmarz/minimum_game
+
+## Verification and limitations
+
+Use Node.js 24+, `npm test`, `npm run typecheck`, and `npm run build` for regression checks.
+The leaderboard is a casual, client-reported timer, not a cheat-proof competition.
+Server-side replay validation and distributed rate limiting are not implemented.
+Bluetooth/USB controller compatibility requires a real device test on the target OS/browser.
 
 ## License
 

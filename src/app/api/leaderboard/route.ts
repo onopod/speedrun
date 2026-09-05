@@ -2,6 +2,7 @@ import { asc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { scores } from "@/db/schema";
 import { db } from "@/lib/db";
+import { parseScore } from "@/lib/game-rules";
 
 export const runtime = "nodejs";
 
@@ -23,17 +24,17 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) {
+    return NextResponse.json({ error: "Invalid origin" }, { status: 403, headers });
+  }
+  let body: unknown;
+  try { body = await request.json(); }
+  catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers }); }
+  const score = parseScore(body);
+  if (!score) return NextResponse.json({ error: "Invalid score" }, { status: 400, headers });
   try {
-    const body = await request.json() as { name?: unknown; timeMs?: unknown; input?: unknown };
-    const name = typeof body.name === "string"
-      ? body.name.normalize("NFKC").replace(/[^\p{L}\p{N}_\- ]/gu, "").trim().slice(0, 16)
-      : "";
-    const timeMs = typeof body.timeMs === "number" ? Math.round(body.timeMs) : 0;
-    const input = body.input === "gamepad" ? "gamepad" : "keyboard";
-    if (!name || timeMs < 1_000 || timeMs > 3_600_000) {
-      return NextResponse.json({ error: "Invalid score" }, { status: 400, headers });
-    }
-    await db.insert(scores).values({ playerName: name, timeMs, inputType: input });
+    await db.insert(scores).values(score);
     return NextResponse.json({ ok: true }, { status: 201, headers });
   } catch (error) {
     console.error("leaderboard.post", error);
