@@ -453,6 +453,7 @@ export default function SpeedrunGame() {
         {renderError && <p role="alert">{renderError}</p>}
         <button className="primary" disabled={Boolean(renderError)} onClick={(event) => { startRef.current(); event.currentTarget.blur(); }}>RUN START</button>
         <p className="lead" style={{ fontSize: 12, marginBottom: 0 }}>BluetoothコントローラーはPC・スマホの設定でペアリングしてからボタンを押してください。</p>
+        <a href="/audio-credits.txt" target="_blank" rel="noopener noreferrer" style={{ color: "#b8c3bb", fontSize: 12 }}>音声クレジット・ライセンス（別タブ）</a>
       </div></div>}
 
       {phase === "finished" && <div className="overlay"><div className="card">

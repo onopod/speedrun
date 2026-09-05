@@ -1,0 +1,26 @@
+NEON SPRINT OSAKA — Audio credits
+
+Formant_1.wav
+Author: Nick Farnan / Pudgyplatypus
+Source: https://opengameart.org/content/royalty-free-game-music-loops
+License: CC0 1.0 — https://creativecommons.org/publicdomain/zero/1.0/
+
+switch9.wav
+Author: Kenney
+Source: https://kenney.nl/assets/ui-audio
+License: CC0 1.0 — https://creativecommons.org/publicdomain/zero/1.0/
+
+trap.wav (original filename: Trap_00.wav)
+Copyright 2015 Little Robot Sound Factory
+Source: https://opengameart.org/content/fantasy-sound-effects-library
+License: CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/
+
+coin-flip.wav
+Copyright bone666138
+Source: https://freesound.org/people/bone666138/sounds/198877/
+License: CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/
+Modification: clipped from the original in the source bundle.
+
+Source bundle: https://github.com/benmarz/minimum_game
+Audio is streamed from this bundle via jsDelivr. This game makes no further
+file edits; it adjusts playback volume and loops the background music.
