@@ -170,7 +170,7 @@ export default function SpeedrunGame() {
       <button className="primary" onClick={() => game.current?.pause(false)}>{hud.phase === "running" || hud.phase === "respawning" ? "▶ 走行を再開" : "設定を閉じる"}</button>
     </div></div>}
     {hud.phase === "ready" && !editing && !hud.paused && <div className="overlay intro"><div className="card">
-      <div className="eyebrow">SKY RUSH / 640 M</div><h1>駆け上がれ。<br /><span>空まで、ラッシュ。</span></h1>
+      <div className="eyebrow">SKY RUSH / 640 M</div><h1>駆け上がれ。<br /><span>空へ、跳べ。</span></h1>
       <p className="lead">光る空中コースを、ジェットコースターのように。<br />上りはじわり、下りは一気に。左右とジャンプで駆け抜けよう。</p>
       <div className="howto"><div><b>01 / STEER</b><span className="desktop-instruction">A D ・ 左スティック</span><span className="mobile-instruction">← 左右にスワイプ →</span></div><div><b>02 / JUMP</b><span className="desktop-instruction">SPACE ・ A / ×</span><span className="mobile-instruction">JUMP ボタン</span><small>タップで小・少し押して中・長押しで大</small></div><div><b>03 / SPEED</b><span className="desktop-instruction">W / S ・ スティック前後</span><span className="mobile-instruction">▲ 前 / ▼ 後ろ</span><small>押している間だけ1段階加減速</small></div><div><b>04 / COLLECT</b>緑のスターと青の加速<small>水色のラインが全回収の道しるべ</small></div></div>
       <button className="primary" disabled={Boolean(renderError)} onClick={e => { start(); e.currentTarget.blur(); }}>走り出す <span>→</span></button>

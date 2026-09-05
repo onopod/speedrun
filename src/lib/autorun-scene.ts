@@ -128,7 +128,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.8, 2, 35, 6), towerMaterial); shaft.position.y = 14; tower.add(shaft);
   for (const y of [26, 29]) { const deck = new THREE.Mesh(new THREE.CylinderGeometry(4, 3.4, 1.5, 8), lime); deck.position.y = y; tower.add(deck); }
   const spire = new THREE.Mesh(new THREE.ConeGeometry(.6, 10, 6), cyan); spire.position.y = 35; tower.add(spire); place(tower, 80, 26);
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), new THREE.MeshStandardMaterial({ color: 0x092822, metalness: .75, roughness: .3 })); water.rotation.x = -Math.PI / 2; water.position.set(0, -10, -300); scene.add(water);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), new THREE.MeshStandardMaterial({ color: 0x092822, metalness: .75, roughness: .3 })); water.rotation.x = -Math.PI / 2; water.position.set(0, -10, -300); if (!software) scene.add(water); else { water.geometry.dispose(); water.material.dispose(); }
 
   const runners = { hayate: createRunner("hayate"), hikari: createRunner("hikari") };
   scene.add(runners.hayate.root, runners.hikari.root);
@@ -212,7 +212,9 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
       const turn = Math.min(1, finishTime / .7), ease = turn * turn * (3 - 2 * turn);
       runner.root.rotateY(Math.PI * ease);
       runner.celebrate(finishTime, finishGrade(state.coins, state.deaths));
-    } else runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, leaning, state.speed, headLookYaw(state));
+    } else if (paused) {
+      runner.root.rotateY(Math.PI); runner.animate(state.time, false, !state.grounded, 0, state.speed);
+    } else runner.animate(state.time, state.phase === "running", !state.grounded, leaning, state.speed, headLookYaw(state));
     shadow.position.copy(world(state.s, state.x, .035)); shadow.visible = state.y >= 0; shadow.scale.setScalar(Math.max(.3, 1 - state.y * .1));
     obstacles.forEach((o, i) => { if (OBSTACLES[i].moving) o.position.copy(world(OBSTACLES[i].s, obstacleX(OBSTACLES[i], state.time))); });
     diamonds.forEach((diamond, i) => { diamond.visible = !state.collected.has(i) && (!software || Math.abs(ITEMS[i].s - state.s) < 100); diamond.rotation.y = state.time * 2 + i; });
@@ -221,8 +223,8 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     if (state.phase === "finished" || paused) {
       // Leave space for the settings/results card while keeping the face visible.
       const portrait = camera.aspect < 1;
-      cameraTarget.copy(world(state.s - (portrait ? 6.5 : 5.5), state.x, 3.3));
-      lookTarget.copy(world(state.s, state.x + (portrait ? 0 : 2), portrait ? .5 : 1.4));
+      cameraTarget.copy(world(state.s - (portrait ? 6.5 : 5.5), state.x, 3.3 + state.y));
+      lookTarget.copy(world(state.s, state.x + (portrait ? 0 : 2), (portrait ? .5 : 1.4) + state.y));
     } else {
       cameraTarget.copy(world(state.s - 10, state.x * .32, 5.2));
       lookTarget.copy(world(state.s + 15, state.x * .15, 1.5));
