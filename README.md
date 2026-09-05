@@ -44,7 +44,11 @@ WebGLが無効の環境ではThree.js SVGRendererによる簡易3D描画へ自�
 
 ゴール時に `POST /api/leaderboard` へ自動送信。UUIDごとの冪等保存で再送信による重複を防止します。各プレイヤーのベストタイムを上位10件表示し、同タイムではアイテム数、登録順で比較します。旧コースとは長さも操作も異なるため、旧 `speedrun_scores` は保持し、新しいランキングには混在させません。
 
-`DATABASE_URL` は従来どおりサーバー専用。初回APIアクセスで `speedrun_guests_v2` / `speedrun_runs_v2` とインデックスを加算的に作成します（`src/lib/guest-store.ts`）。DDLはトランザクションのadvisory lockで同時起動を直列化し、失敗時は次回リクエストで再試行。既存DBの削除・変更は不要です。DBロールにCREATE権限が必要です。DB接続不能時もゲームは遊べ、ランキング保存はエラー表示と再送信に対応します。
+`DATABASE_URL`（未指定時はVercel連携の `POSTGRES_URL`）はサーバー専用。初回APIアクセスで `speedrun_guests_v2` / `speedrun_runs_v2` とインデックスを加算的に作成します（`src/lib/guest-store.ts`）。DDLはトランザクションのadvisory lockで同時起動を直列化し、失敗時は次回リクエストで再試行。既存DBの削除・変更は不要です。DBロールにCREATE権限が必要です。
+
+DB接続不能時も短い名前を自動発行し、名前変更はこの端末のlocalStorageへ保存します。接続復帰時にCookieで確立した本人のプロフィールへ同期します。未送信記録は最新20件を端末に保持し、再読み込み・オンライン復帰時に再送信します。端末保存と公開ランキング保存は別の状態として表示し、APIが成功するまで公開保存済みと表示しません。ブラウザのサイトデータ削除で未送信記録は失われます。
+
+運用確認: 本番の `/api/player` が `DATABASE_NOT_CONFIGURED` を返す場合は、Vercelの対象プロジェクトのProduction環境にサーバー専用接続変数を設定して再デプロイしてください。秘密値をGitHubやNEXT_PUBLIC変数に保存しないでください。
 
 ## Audio credits
 

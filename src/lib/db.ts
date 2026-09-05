@@ -3,9 +3,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 const globalForDb = globalThis as unknown as { pool?: Pool };
+export const hasDatabase = Boolean(process.env.DATABASE_URL || process.env.POSTGRES_URL);
 
 const pool = globalForDb.pool ?? new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL,
   max: 5,
   idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 5_000,
