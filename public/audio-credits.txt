@@ -23,4 +23,8 @@ Modification: clipped from the original in the source bundle.
 
 Source bundle: https://github.com/benmarz/minimum_game
 Audio is streamed from this bundle via jsDelivr. This game makes no further
-file edits; it adjusts playback volume and loops the background music.
+file edits; it adjusts playback volume and pitch and loops the background music.
+
+Original procedural sound layers (Web Audio oscillators): jump, landing,
+diamond pickup, boost, checkpoint, respawn and finish. Created for this project;
+source code under the repository's MIT license. These are not third-party samples.
