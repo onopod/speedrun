@@ -1,0 +1,10 @@
+node_modules
+.next
+.vercel
+.env*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+generated_images/
+public/runner.png
+.tools/
