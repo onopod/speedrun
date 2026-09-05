@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newRun, stepRun, STEP, OBSTACLES, GAPS, ITEMS, CHECKPOINTS, COURSE_LENGTH, COURSE_ID, JUMP_SPEED, JUMP_HEIGHTS, GRAVITY, FALL_GRAVITY, MEDIUM_HOLD, LARGE_HOLD, LOOK_DURATION, airborneMotion, headLookYaw, jumpLevelForHold, slideTarget } from '../src/lib/autorun.ts';
+import { newRun, stepRun, STEP, OBSTACLES, GAPS, ITEMS, CHECKPOINTS, COURSE_LENGTH, COURSE_ID, JUMP_SPEED, JUMP_HEIGHTS, GRAVITY, FALL_GRAVITY, MEDIUM_HOLD, LARGE_HOLD, LOOK_DURATION, airborneMotion, headLookYaw, jumpLevelForHold, slideTarget, hillSpeedFactor, elevationAt, guideInput, routeX, JUMP_MARKERS, finishGrade } from '../src/lib/autorun.ts';
 import { generateGuestName, normalizeGuestName, parseRun } from '../src/lib/guest-rules.ts';
 import { createRunner } from '../src/lib/runner-model.ts';
 const neutral = { steer: 0, boost: false, slow: false, jump: false };
 
-test('every forward speed is exactly 1.3 times the prior release', () => {
+test('flat-ground speeds preserve the previous release', () => {
   for (const [input, item, expected] of [[neutral, false, 15.6], [{ ...neutral, slow: true }, false, 13], [{ ...neutral, boost: true }, false, 20.8], [neutral, true, 23.4]]) {
-    const r = newRun(); if (item) r.boost = 2;
+    const r = newRun(); r.x = -4; if (item) r.boost = 2;
     for (let i = 0; i < 120; i++) stepRun(r, input);
     assert.ok(Math.abs(r.s - expected) < 1e-8); assert.equal(r.phase, 'running');
   }
@@ -112,7 +112,7 @@ test('glance animation changes only the head bone, leaving the running body faci
   runner.animate(1, true, false, 0, 15.6, 0); assert.equal(runner.root.getObjectByName('head').rotation.y, 0);
 });
 test('collision resets to the last checkpoint and resumes automatically; collected items cannot be farmed', () => {
-  const r = newRun(); r.checkpoint = 2; r.s = 389; r.y = 0; r.collected.add(2); r.coins = 1;
+  const r = newRun(); r.checkpoint = 2; r.s = 384; r.y = 0; r.collected.add(2); r.coins = 1;
   let events = [];
   for (let i = 0; i < 20 && r.phase !== 'respawning'; i++) events = stepRun(r, neutral);
   assert.ok(events.includes('hit')); assert.equal(r.s, CHECKPOINTS[1] + 2);
@@ -127,4 +127,56 @@ test('short guest names and anonymous run validation reject malformed records', 
   const valid = { runId: '7a1f50bf-e51c-40da-8842-a4b6b33769ef', timeMs: 51000, input: 'touch', coins: 19, course: COURSE_ID };
   assert.ok(parseRun(valid, COURSE_ID)); assert.ok(parseRun({ ...valid, timeMs: 28000 }, COURSE_ID));
   for (const bad of [null, [], { ...valid, timeMs: NaN }, { ...valid, timeMs: 24999 }, { ...valid, coins: 61 }, { ...valid, runId: 'bad' }, { ...valid, input: 'bot' }, { ...valid, course: 'osaka-river-v2' }, { ...valid, course: undefined }]) assert.equal(parseRun(bad, COURSE_ID), null);
+});
+
+
+test('the visible reference route collects all 60 stars with human-sized timing tolerance', () => {
+  for (const offset of [-.75, 0, .75]) {
+    const r = newRun(); let next = 0, hold = 0;
+    while (r.phase !== 'finished' && r.time < 70) {
+      if (next < JUMP_MARKERS.length && r.s >= JUMP_MARKERS[next].s + offset && r.grounded) { hold = .32; next++; }
+      stepRun(r, { ...neutral, targetX: routeX(r.s), jump: hold > 0 }); hold -= STEP;
+    }
+    assert.equal(r.phase, 'finished'); assert.equal(r.coins, 60, `timing ${offset}`); assert.equal(r.deaths, 0);
+    assert.equal(r.checkpoint, 3); assert.equal(next, 8);
+  }
+});
+test('hills are continuous, modest uphill and fast downhill, and preserve score validity', () => {
+  let uphill = 1, downhill = 1, height = 0, effort = 0;
+  for (let s = 0; s < COURSE_LENGTH; s += .01) {
+    const elevation = elevationAt(s), factor = hillSpeedFactor(s);
+    uphill = Math.min(uphill, factor); downhill = Math.max(downhill, factor); height = Math.max(height, elevation.height);
+    assert.ok(factor >= .91 && factor <= 1.7);
+    assert.ok(Math.abs(elevationAt(s + .001).height - elevation.height) < .001);
+    effort += .01 / factor;
+  }
+  assert.ok(uphill < .93); assert.ok(downhill > 1.65); assert.ok(height > 20);
+  // Even continuous fast input plus all six full-duration boosts cannot beat
+  // the API's 25s floor. A new course ID keeps older records separate.
+  assert.ok((effort - (23.4 - 20.8) * 6 * 2.2) / 20.8 > 25);
+  assert.equal(COURSE_ID, 'sky-rush-v5');
+});
+test('the reference controller also clears the course with held acceleration or braking', () => {
+  for (const mode of ['fast', 'slow']) {
+    const r = newRun();
+    while (r.phase !== 'finished' && r.time < 70) stepRun(r, { ...guideInput(r), boost: mode === 'fast', slow: mode === 'slow' });
+    assert.equal(r.phase, 'finished'); assert.equal(r.deaths, 0); assert.ok(r.time >= 25);
+  }
+});
+test('finish evaluations have explicit boundaries and three distinct animated poses for both runners', () => {
+  assert.equal(finishGrade(48, 2), 'great'); assert.equal(finishGrade(47, 2), 'good');
+  assert.equal(finishGrade(60, 3), 'good'); assert.equal(finishGrade(24, 6), 'good');
+  assert.equal(finishGrade(23, 0), 'retry'); assert.equal(finishGrade(60, 7), 'retry');
+  for (const variant of ['hayate', 'hikari']) {
+    const model = createRunner(variant), poses = new Set();
+    assert.equal(model.root.userData.character, variant);
+    assert.equal(model.root.getObjectByName('ponytail').children.length > 0, variant === 'hikari');
+    for (const grade of ['great', 'good', 'retry']) {
+      model.celebrate(1.4, grade); const pose = [];
+      model.root.traverse(o => { assert.ok(o.position.toArray().every(Number.isFinite)); assert.ok(o.rotation.toArray().slice(0, 3).every(Number.isFinite)); pose.push(o.position.toArray(), o.rotation.toArray()); });
+      poses.add(JSON.stringify(pose));
+    }
+    assert.equal(poses.size, 3);
+    model.animate(0, true, false, 0, 15.6); assert.equal(model.root.getObjectByName('head').rotation.x, 0);
+  }
 });

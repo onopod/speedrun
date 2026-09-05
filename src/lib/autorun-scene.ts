@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
-import { CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, coursePoint, headLookYaw, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
-import { createRunner } from "./runner-model";
+import { CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, IDEAL_ROUTE, JUMP_MARKERS, elevationAt, finishGrade, coursePoint, headLookYaw, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
+import { createRunner, type RunnerVariant } from "./runner-model";
 import { GameAudio } from "./game-audio";
 
-export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; jumpLevel: RunState["jumpLevel"]; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean };
-export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string; course: string };
-export type GameHandle = { start(): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost" | "slow", down: boolean): void; dispose(): void };
+export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; jumpLevel: RunState["jumpLevel"]; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean; finishTime: number; slope: number; nextJump: number };
+export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string; course: string; deaths: number };
+export type GameHandle = { start(): void; configure(character: RunnerVariant, guide: boolean): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost" | "slow", down: boolean): void; dispose(): void };
 
 function frameAt(s: number) {
   const p = coursePoint(s), a = coursePoint(s - .1), b = coursePoint(s + .1);
@@ -30,7 +30,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   }
   const software = renderer instanceof SVGRenderer;
   renderer.setSize(mount.clientWidth, mount.clientHeight);
-  renderer.domElement.classList.add("game-canvas"); renderer.domElement.setAttribute("aria-label", "カーブする大阪コースを背面から走る3Dゲーム");
+  renderer.domElement.classList.add("game-canvas"); renderer.domElement.setAttribute("aria-label", "坂とカーブを駆け抜けるSKY RUSHの3Dゲーム");
   mount.appendChild(renderer.domElement);
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x061411); scene.fog = new THREE.FogExp2(0x061411, .0065);
   const camera = new THREE.PerspectiveCamera(64, mount.clientWidth / mount.clientHeight, .1, 350);
@@ -69,10 +69,36 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     const border = new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry), new THREE.LineBasicMaterial({ color: 0xffe7c0 })); border.position.copy(box.position); group.add(border);
     place(group, o.s, o.x); return group;
   });
+  const star = new THREE.Shape();
+  for (let i = 0; i < 10; i++) { const angle = Math.PI / 2 + i * Math.PI / 5, radius = i % 2 ? .19 : .42; if (i === 0) star.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius); else star.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius); } star.closePath();
+  const starGeometry = new THREE.ExtrudeGeometry(star, { depth: .13, bevelEnabled: false });
   const diamonds = ITEMS.map(item => {
-    const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(item.boost ? .5 : .33), item.boost ? cyan : lime);
+    const mesh = new THREE.Mesh(starGeometry, item.boost ? cyan : lime);
+    if (item.boost) mesh.scale.setScalar(1.3);
     place(mesh, item.s, item.x, item.y); return mesh;
   });
+  // The translucent ribbon follows a replay verified to collect all 60 stars.
+  const guide = new THREE.Group(); scene.add(guide);
+  const ribbon: number[] = [];
+  for (let i = 1; i < IDEAL_ROUTE.length; i++) {
+    const a = IDEAL_ROUTE[i - 1], b = IDEAL_ROUTE[i];
+    const leftA = world(a.s, a.x - .23, a.y + .12), rightA = world(a.s, a.x + .23, a.y + .12);
+    const leftB = world(b.s, b.x - .23, b.y + .12), rightB = world(b.s, b.x + .23, b.y + .12);
+    [leftA, rightA, rightB, leftA, rightB, leftB].forEach(v => add(ribbon, v));
+  }
+  const ribbonGeometry = new THREE.BufferGeometry(); ribbonGeometry.setAttribute("position", new THREE.Float32BufferAttribute(ribbon, 3));
+  guide.add(new THREE.Mesh(ribbonGeometry, new THREE.MeshBasicMaterial({ color: 0x83ffe8, transparent: true, opacity: .3, side: THREE.DoubleSide, depthWrite: false })));
+  const guideMarkers: THREE.Object3D[] = [];
+  for (const launch of JUMP_MARKERS) {
+    const marker = new THREE.Group(); marker.userData.s = launch.s;
+    for (const offset of [0, -1.5, -3]) {
+      for (const side of [-1, 1]) {
+        const arrow = new THREE.Mesh(new THREE.BoxGeometry(.12, .045, .9), new THREE.MeshBasicMaterial({ color: 0x85fff0, transparent: true, opacity: .65 }));
+        arrow.position.set(side * .22, .08, -offset); arrow.rotation.y = side * -.55; marker.add(arrow);
+      }
+    }
+    marker.position.copy(world(launch.s, launch.x)); marker.quaternion.copy(frameAt(launch.s).quaternion); guide.add(marker); guideMarkers.push(marker);
+  }
   const gates = [...CHECKPOINTS, COURSE_LENGTH].map((s, i) => {
     const group = new THREE.Group(), mat = i === 3 ? lime : cyan;
     for (const x of [-5, 5]) { const p = new THREE.Mesh(new THREE.BoxGeometry(.22, 6.5, .35), mat); p.position.set(x, 3.25, 0); group.add(p); }
@@ -104,17 +130,19 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const spire = new THREE.Mesh(new THREE.ConeGeometry(.6, 10, 6), cyan); spire.position.y = 35; tower.add(spire); place(tower, 80, 26);
   const water = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), new THREE.MeshStandardMaterial({ color: 0x092822, metalness: .75, roughness: .3 })); water.rotation.x = -Math.PI / 2; water.position.set(0, -10, -300); scene.add(water);
 
-  const runner = createRunner(); scene.add(runner.root);
+  const runners = { hayate: createRunner("hayate"), hikari: createRunner("hikari") };
+  scene.add(runners.hayate.root, runners.hikari.root);
+  let character: RunnerVariant = "hayate", showGuide = true;
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(.65, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .4, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; scene.add(shadow);
   let state = newRun(); state.phase = "ready";
-  let runId = "", last = performance.now(), accumulator = 0, frame = 0, hudAt = 0, paused = false, disposed = false;
+  let runId = "", last = performance.now(), accumulator = 0, frame = 0, hudAt = 0, paused = false, disposed = false, finishTime = 0;
   let inputType: Hud["input"] = "keyboard", gamepad = false, padStart = false, padJump = false, cameraSnap = true, jumpQueued = false;
   const keys = new Set<string>(), touches = new Set<string>();
   let swipeTarget: number | undefined;
   const audio = new GameAudio();
-  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, jumpLevel: state.jumpLevel, gamepad, input: inputType, paused, software });
+  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, jumpLevel: state.jumpLevel, gamepad, input: inputType, paused, software, finishTime, slope: elevationAt(state.s).slope, nextJump: (JUMP_MARKERS.find(p => p.s > state.s - 1)?.s ?? COURSE_LENGTH + 100) - state.s });
   const start = () => {
-    state = newRun(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false; swipeTarget = undefined;
+    state = newRun(); finishTime = 0; clear(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false; swipeTarget = undefined;
     diamonds.forEach(d => { d.visible = true; }); audio.unlock(); onStart(); publish();
   };
   const onKeyDown = (e: KeyboardEvent) => {
@@ -126,7 +154,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     audio.unlock();
     if ((e.code === "Space" || e.code === "Enter") && state.phase === "ready") start();
     else if (e.code === "KeyR") start();
-    else if (e.code === "KeyP" || e.code === "Escape") { paused = !paused; publish(); }
+    else if (e.code === "KeyP" || e.code === "Escape") { paused = !paused; clear(); publish(); }
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
   const clear = () => { keys.clear(); touches.clear(); jumpQueued = false; swipeTarget = undefined; };
@@ -144,7 +172,8 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     gamepad = Boolean(pad);
     const a = Boolean(pad?.buttons[0]?.pressed), menu = Boolean(pad?.buttons[9]?.pressed);
     const editing = document.activeElement instanceof HTMLElement && Boolean(document.activeElement.closest("input,textarea,[contenteditable='true']"));
-    if (!editing && ((a && !padJump && state.phase === "ready") || (menu && !padStart))) { start(); inputType = "gamepad"; }
+    if (!editing && a && !padJump && state.phase === "ready" && !paused) { start(); inputType = "gamepad"; }
+    if (!editing && menu && !padStart) { if (state.phase === "ready" || state.phase === "finished") start(); else { paused = !paused; clear(); publish(); } inputType = "gamepad"; }
     if (a && !padJump && !editing) jumpQueued = true;
     padJump = a; padStart = menu;
     const axis = Math.abs(pad?.axes[0] ?? 0) > .18 ? pad!.axes[0] : 0;
@@ -166,36 +195,51 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
         events.forEach(event => {
           audio.play(event);
           if (event === "hit") { cameraSnap = true; swipeTarget = undefined; input.targetX = undefined; }
-          if (event === "finish") { onFinish({ timeMs: Math.round(state.time * 1000), input: inputType, coins: state.coins, runId, course: COURSE_ID }); publish(); }
+          if (event === "finish") { onFinish({ timeMs: Math.round(state.time * 1000), input: inputType, coins: state.coins, runId, course: COURSE_ID, deaths: state.deaths }); publish(); }
         });
       }
     } else accumulator = 0;
-    const f = frameAt(state.s);
+    if (state.phase === "finished" && !paused) finishTime += dt;
+    const f = frameAt(state.s), runner = runners[character];
+    runners.hayate.root.visible = false; runners.hikari.root.visible = false;
+    guide.visible = showGuide && state.phase !== "finished";
+    guideMarkers.forEach(m => { m.visible = Math.abs(m.userData.s - state.s) < 110; });
     runner.root.position.copy(f.position).addScaledVector(f.right, state.x).addScaledVector(f.up, state.y);
     runner.root.quaternion.copy(f.quaternion);
     runner.root.visible = state.phase !== "respawning" || Math.sin(now / 55) > 0;
     const leaning = swipeTarget === undefined ? input.steer : Math.max(-1, Math.min(1, (swipeTarget - state.x) * 2));
-    runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, leaning, state.speed, headLookYaw(state));
+    if (state.phase === "finished") {
+      const turn = Math.min(1, finishTime / .7), ease = turn * turn * (3 - 2 * turn);
+      runner.root.rotateY(Math.PI * ease);
+      runner.celebrate(finishTime, finishGrade(state.coins, state.deaths));
+    } else runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, leaning, state.speed, headLookYaw(state));
     shadow.position.copy(world(state.s, state.x, .035)); shadow.visible = state.y >= 0; shadow.scale.setScalar(Math.max(.3, 1 - state.y * .1));
     obstacles.forEach((o, i) => { if (OBSTACLES[i].moving) o.position.copy(world(OBSTACLES[i].s, obstacleX(OBSTACLES[i], state.time))); });
     diamonds.forEach((diamond, i) => { diamond.visible = !state.collected.has(i) && (!software || Math.abs(ITEMS[i].s - state.s) < 100); diamond.rotation.y = state.time * 2 + i; });
     softwareBuildings.forEach(b => { b.visible = b.userData.s > state.s - 25 && b.userData.s < state.s + 100; });
     gates.forEach((gate, i) => { gate.scale.setScalar(i < state.checkpoint ? 1.025 : 1); });
-    cameraTarget.copy(world(state.s - 10, state.x * .32, 5.2));
-    lookTarget.copy(world(state.s + 15, state.x * .15, 1.5));
+    if (state.phase === "finished" || paused) {
+      // Leave space for the settings/results card while keeping the face visible.
+      const portrait = camera.aspect < 1;
+      cameraTarget.copy(world(state.s - (portrait ? 6.5 : 5.5), state.x, 3.3));
+      lookTarget.copy(world(state.s, state.x + (portrait ? 0 : 2), portrait ? .5 : 1.4));
+    } else {
+      cameraTarget.copy(world(state.s - 10, state.x * .32, 5.2));
+      lookTarget.copy(world(state.s + 15, state.x * .15, 1.5));
+    }
     if (cameraSnap) { camera.position.copy(cameraTarget); smoothLook.copy(lookTarget); cameraSnap = false; }
     camera.position.lerp(cameraTarget, 1 - Math.exp(-8 * dt)); smoothLook.lerp(lookTarget, 1 - Math.exp(-7 * dt)); camera.lookAt(smoothLook);
-    const fov = state.boost > 0 ? 71 : state.speed > RUN_SPEED ? 68 : 64;
+    const fov = state.phase === "finished" || paused ? 52 : state.speed > RUN_SPEED * 1.5 ? 76 : state.boost > 0 ? 71 : state.speed > RUN_SPEED ? 68 : 64;
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix();
     renderer.render(scene, camera);
     if (now - hudAt > 90) { publish(); hudAt = now; }
   };
   frame = requestAnimationFrame(animate);
   return {
-    start, mute: value => audio.mute(value),
+    start, configure(variant, enabled) { character = variant; showGuide = enabled; }, mute: value => audio.mute(value),
     pause(value) { paused = value; clear(); publish(); },
     slide(fraction) { if (paused || state.phase !== "running" || !Number.isFinite(fraction)) return; swipeTarget = slideTarget(swipeTarget ?? state.x, fraction); inputType = "touch"; },
-    touch(key, down) { if (down) { touches.add(key); if (key === "jump") jumpQueued = true; inputType = "touch"; audio.unlock(); } else touches.delete(key); },
+    touch(key, down) { if (down && !paused && state.phase === "running") { touches.add(key); if (key === "jump") jumpQueued = true; inputType = "touch"; audio.unlock(); } else touches.delete(key); },
     dispose() {
       disposed = true; cancelAnimationFrame(frame); resize.disconnect(); audio.dispose();
       window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", clear); document.removeEventListener("visibilitychange", visibility);
