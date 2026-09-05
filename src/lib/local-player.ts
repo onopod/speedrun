@@ -4,7 +4,7 @@ import { COURSE_ID } from "./autorun";
 
 type LocalPlayer = { id: string; name: string; needsSync: boolean };
 let memoryPlayer: LocalPlayer | undefined;
-const PLAYER_KEY = "speedrun.player.v2", RUNS_KEY = "speedrun.pending.v3";
+const PLAYER_KEY = "speedrun.player.v2", RUNS_KEY = "speedrun.pending.v4";
 function read(key: string): unknown { try { return JSON.parse(localStorage.getItem(key) ?? "null"); } catch { return null; } }
 function write(key: string, value: unknown) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } }
 export function localPlayer(): LocalPlayer {

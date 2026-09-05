@@ -48,6 +48,8 @@ export class GameAudio {
     }
     switch (event) {
       case "jump": this.tone(210, 0, .22, "triangle", 780); this.tone(440, .035, .13, "sine", 1000); break;
+      case "jump-medium": this.tone(540, 0, .12, "triangle", 880); break;
+      case "jump-large": this.tone(740, 0, .18, "triangle", 1320); break;
       case "coin": { const f = 660 * 2 ** ((this.combo++ % 5) / 12); this.tone(f, 0, .1); this.tone(f * 1.5, .07, .2); break; }
       case "land": this.tone(95, 0, .08, "triangle", 40); break;
       case "boost": [330, 440, 660, 880].forEach((f, i) => this.tone(f, i * .06, .18, "triangle", f * 1.1)); break;
