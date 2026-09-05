@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "NEON SPRINT OSAKA",
-  description: "WASDとゲームコントローラーで遊べるWebGLスピードラン",
+  title: "SKY RUSH | スカイラッシュ",
+  description: "坂とカーブを駆け抜けるWebGLランゲーム。WASD・スワイプ・ゲームパッドで全60スターを集めよう。",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
