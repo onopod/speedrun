@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
-import { CHECKPOINTS, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, STEP, coursePoint, newRun, obstacleX, stepRun, type RunState, type Input } from "./autorun";
+import { CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, coursePoint, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
 import { createRunner } from "./runner-model";
 import { GameAudio } from "./game-audio";
 
 export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean };
-export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string };
-export type GameHandle = { start(): void; mute(value: boolean): void; pause(value: boolean): void; touch(key: "left" | "right" | "jump" | "boost", down: boolean): void; dispose(): void };
+export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string; course: string };
+export type GameHandle = { start(): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost", down: boolean): void; dispose(): void };
 
 function frameAt(s: number) {
   const p = coursePoint(s), a = coursePoint(s - .1), b = coursePoint(s + .1);
@@ -110,10 +110,11 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   let runId = "", last = performance.now(), accumulator = 0, frame = 0, hudAt = 0, paused = false, disposed = false;
   let inputType: Hud["input"] = "keyboard", gamepad = false, padStart = false, padJump = false, cameraSnap = true, jumpQueued = false;
   const keys = new Set<string>(), touches = new Set<string>();
+  let swipeTarget: number | undefined;
   const audio = new GameAudio();
   const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, gamepad, input: inputType, paused, software });
   const start = () => {
-    state = newRun(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false;
+    state = newRun(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false; swipeTarget = undefined;
     diamonds.forEach(d => { d.visible = true; }); audio.unlock(); onStart(); publish();
   };
   const onKeyDown = (e: KeyboardEvent) => {
@@ -128,7 +129,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     else if (e.code === "KeyP" || e.code === "Escape") { paused = !paused; publish(); }
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
-  const clear = () => { keys.clear(); touches.clear(); jumpQueued = false; };
+  const clear = () => { keys.clear(); touches.clear(); jumpQueued = false; swipeTarget = undefined; };
   const visibility = () => { clear(); accumulator = 0; last = performance.now(); if (document.hidden) audio.pause(); };
   window.addEventListener("keydown", onKeyDown, { passive: false }); window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", clear); document.addEventListener("visibilitychange", visibility);
@@ -149,19 +150,21 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     const vertical = Math.abs(pad?.axes[1] ?? 0) > .18 ? pad!.axes[1] : 0;
     if (!editing && pad && (axis || vertical || pad.buttons.some(b => b.pressed))) inputType = "gamepad";
     const input: Input = {
-      steer: editing ? 0 : Number(keys.has("KeyD") || keys.has("ArrowRight") || touches.has("right")) - Number(keys.has("KeyA") || keys.has("ArrowLeft") || touches.has("left")) + axis + Number(Boolean(pad?.buttons[15]?.pressed)) - Number(Boolean(pad?.buttons[14]?.pressed)),
+      steer: editing ? 0 : Number(keys.has("KeyD") || keys.has("ArrowRight")) - Number(keys.has("KeyA") || keys.has("ArrowLeft")) + axis + Number(Boolean(pad?.buttons[15]?.pressed)) - Number(Boolean(pad?.buttons[14]?.pressed)),
       jump: !editing && (jumpQueued || keys.has("Space") || a || touches.has("jump")),
       boost: !editing && (keys.has("KeyW") || keys.has("ArrowUp") || keys.has("ShiftLeft") || Boolean(pad?.buttons[1]?.pressed) || Boolean(pad?.buttons[12]?.pressed) || vertical < -.5 || touches.has("boost")),
       slow: !editing && (keys.has("KeyS") || keys.has("ArrowDown") || Boolean(pad?.buttons[13]?.pressed) || vertical > .5),
     };
+    if (input.steer) swipeTarget = undefined;
+    input.targetX = editing ? undefined : swipeTarget;
     if (!paused) {
       accumulator += dt;
       while (accumulator >= STEP) {
         const events = stepRun(state, input); accumulator -= STEP; jumpQueued = false;
         events.forEach(event => {
           audio.play(event);
-          if (event === "hit") cameraSnap = true;
-          if (event === "finish") { onFinish({ timeMs: Math.round(state.time * 1000), input: inputType, coins: state.coins, runId }); publish(); }
+          if (event === "hit") { cameraSnap = true; swipeTarget = undefined; input.targetX = undefined; }
+          if (event === "finish") { onFinish({ timeMs: Math.round(state.time * 1000), input: inputType, coins: state.coins, runId, course: COURSE_ID }); publish(); }
         });
       }
     } else accumulator = 0;
@@ -169,7 +172,8 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     runner.root.position.copy(f.position).addScaledVector(f.right, state.x).addScaledVector(f.up, state.y);
     runner.root.quaternion.copy(f.quaternion);
     runner.root.visible = state.phase !== "respawning" || Math.sin(now / 55) > 0;
-    runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, input.steer, state.speed);
+    const leaning = swipeTarget === undefined ? input.steer : Math.max(-1, Math.min(1, (swipeTarget - state.x) * 2));
+    runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, leaning, state.speed);
     shadow.position.copy(world(state.s, state.x, .035)); shadow.visible = state.y >= 0; shadow.scale.setScalar(Math.max(.3, 1 - state.y * .1));
     obstacles.forEach((o, i) => { if (OBSTACLES[i].moving) o.position.copy(world(OBSTACLES[i].s, obstacleX(OBSTACLES[i], state.time))); });
     diamonds.forEach((diamond, i) => { diamond.visible = !state.collected.has(i) && (!software || Math.abs(ITEMS[i].s - state.s) < 100); diamond.rotation.y = state.time * 2 + i; });
@@ -179,7 +183,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     lookTarget.copy(world(state.s + 15, state.x * .15, 1.5));
     if (cameraSnap) { camera.position.copy(cameraTarget); smoothLook.copy(lookTarget); cameraSnap = false; }
     camera.position.lerp(cameraTarget, 1 - Math.exp(-8 * dt)); smoothLook.lerp(lookTarget, 1 - Math.exp(-7 * dt)); camera.lookAt(smoothLook);
-    const fov = state.boost > 0 ? 71 : state.speed > 14 ? 68 : 64;
+    const fov = state.boost > 0 ? 71 : state.speed > RUN_SPEED ? 68 : 64;
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix();
     renderer.render(scene, camera);
     if (now - hudAt > 90) { publish(); hudAt = now; }
@@ -188,6 +192,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   return {
     start, mute: value => audio.mute(value),
     pause(value) { paused = value; clear(); publish(); },
+    slide(fraction) { if (paused || state.phase !== "running" || !Number.isFinite(fraction)) return; swipeTarget = slideTarget(swipeTarget ?? state.x, fraction); inputType = "touch"; },
     touch(key, down) { if (down) { touches.add(key); if (key === "jump") jumpQueued = true; inputType = "touch"; audio.unlock(); } else touches.delete(key); },
     dispose() {
       disposed = true; cancelAnimationFrame(frame); resize.disconnect(); audio.dispose();
