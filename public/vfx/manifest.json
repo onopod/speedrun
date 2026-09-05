@@ -1,0 +1,20 @@
+[
+  {
+    "file": "star.png",
+    "sourceFile": "PNG (Transparent)/star_04.png",
+    "sha256": "6485ac16c773663bd39346f3bedae04465ac14c661eb47cc5cfa935cdbf6c2ec",
+    "bytes": 30613
+  },
+  {
+    "file": "light.png",
+    "sourceFile": "PNG (Transparent)/light_01.png",
+    "sha256": "caedcc5df5bcac4470244d2520d6a64b45b20c1ccf4d918da516c55e3fa365a6",
+    "bytes": 93470
+  },
+  {
+    "file": "smoke.png",
+    "sourceFile": "PNG/White puff/whitePuff00.png",
+    "sha256": "33f894c2279bee9f77874dbfa3c0e9f071a0ee5e1a7065dcc40196029d699f58",
+    "bytes": 57599
+  }
+]

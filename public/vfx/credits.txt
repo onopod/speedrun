@@ -1,0 +1,25 @@
+SKY RUSH — Visual effects
+
+Kenney Particle Pack (CC0)
+https://kenney.nl/assets/particle-pack
+Source archive:
+https://kenney.nl/media/pages/assets/particle-pack/f8fe0f8cb8-1677578741/kenney_particle-pack.zip
+star.png = PNG (Transparent)/star_04.png
+light.png = PNG (Transparent)/light_01.png
+Full original license: /vfx/LICENSE-particle.txt
+
+Kenney Smoke Particles (CC0)
+https://kenney.nl/assets/smoke-particles
+Source archive:
+https://kenney.nl/media/pages/assets/smoke-particles/23249a0d35-1677695171/kenney_smoke-particles.zip
+smoke.png = PNG/White puff/whitePuff00.png
+Full original license: /vfx/LICENSE-smoke.txt
+
+The three source PNGs are unmodified. Checksums are in /vfx/manifest.json.
+Commercial use is permitted; attribution is optional.
+https://kenney.nl/support
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Particle motion, colors, expanding rings, speed trails, confetti geometry,
+and screen-edge speed lines are original code for SKY RUSH (MIT).
+WebGL uses the above textures. GPU-disabled SVG fallback uses simplified geometry.

@@ -52,6 +52,7 @@ export class GameAudio {
       case "jump-large": this.tone(740, 0, .18, "triangle", 1320); break;
       case "coin": { const f = 660 * 2 ** ((this.combo++ % 5) / 12); this.tone(f, 0, .1); this.tone(f * 1.5, .07, .2); break; }
       case "land": this.tone(95, 0, .08, "triangle", 40); break;
+      case "pad": this.tone(160, 0, .3, "sawtooth", 680); break;
       case "boost": [330, 440, 660, 880].forEach((f, i) => this.tone(f, i * .06, .18, "triangle", f * 1.1)); break;
       case "hit": this.combo = 0; this.tone(140, 0, .3, "sawtooth", 30); break;
       case "respawn": [392, 523, 784].forEach((f, i) => this.tone(f, i * .08, .15)); break;

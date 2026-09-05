@@ -10,7 +10,7 @@ import type { RunnerVariant } from "@/lib/runner-model";
 
 type Guest = { id: string; name: string };
 type Score = { id: string; name: string; timeMs: number; coins: number; playerId: string };
-const initialHud: Hud = { phase: "ready", time: 0, distance: 0, checkpoint: 0, coins: 0, deaths: 0, speed: RUN_SPEED, boost: false, height: 0, jumpLevel: 0, gamepad: false, input: "keyboard", paused: false, software: false, finishTime: 0, slope: 0, nextJump: 60 };
+const initialHud: Hud = { phase: "ready", time: 0, distance: 0, checkpoint: 0, coins: 0, deaths: 0, speed: RUN_SPEED, boost: false, height: 0, jumpLevel: 0, gamepad: false, input: "keyboard", paused: false, software: false, finishTime: 0, slope: 0, nextJump: 60, speedMode: "normal" };
 const formatTime = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${(ms % 60000 / 1000).toFixed(2).padStart(5, "0")}`;
 const finishCopy = { great: { title: "最高の走り！", label: "EXCELLENT", action: "両手を上げてビクトリージャンプ" }, good: { title: "ナイスラン！", label: "NICE RUN", action: "笑顔で手を振ってフィニッシュ" }, retry: { title: "次はもっといける！", label: "KEEP GOING", action: "照れながら頭をかいて、うなずく" } };
 function RunnerPortrait({ female }: { female: boolean }) {
@@ -139,15 +139,16 @@ export default function SpeedrunGame() {
     swipe.current.x = e.clientX;
   };
 
-  return <section className={`game-shell ${hud.boost ? "boosting" : ""}`}>
+  return <section className={`game-shell speed-${hud.speedMode} ${hud.boost ? "boosting" : ""}`}>
     <div ref={mount} className="scene-mount" />
     {hud.phase === "running" && !editing && !hud.paused && <div className="swipe-surface" role="region" aria-label="左右スワイプ操作エリア"
       onPointerDown={e => { if (e.button !== 0 || swipe.current) return; e.preventDefault(); swipe.current = { id: e.pointerId, x: e.clientX }; e.currentTarget.setPointerCapture(e.pointerId); }}
       onPointerMove={slide} onPointerUp={e => { slide(e); if (swipe.current?.id === e.pointerId) swipe.current = null; }}
       onPointerCancel={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} onLostPointerCapture={e => { if (swipe.current?.id === e.pointerId) swipe.current = null; }} />}
+    {hud.phase === "running" && !hud.paused && !editing && ["manual", "star", "pad"].includes(hud.speedMode) && <div className="speed-fx" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} style={{ left: `${i < 6 ? 2 + i * 2.8 : 84 + (i - 6) * 2.8}%`, top: `${13 + (i * 17 % 63)}%`, animationDelay: `${-(i * .073)}s`, height: `${36 + i % 4 * 15}px` }} />)}</div>}
     <header className="hud">
-      <div className="brand">SKY <b>RUSH</b><small>スカイラッシュ / SKYLINE v5</small></div>
-      <div className="timer">{formatTime(hud.time)}<small>{hud.boost ? "BOOST!" : hud.phase === "running" ? "AUTO RUN" : "TIME ATTACK"}</small></div>
+      <div className="brand">SKY <b>RUSH</b><small>スカイラッシュ / SKYLINE v5 / FX</small></div>
+      <div className="timer">{formatTime(hud.time)}<small>{hud.speedMode === "star" ? "STAR BOOST!" : hud.speedMode === "pad" ? "PAD BOOST!" : hud.speedMode === "manual" ? "ACCEL!" : hud.phase === "running" ? "AUTO RUN" : "TIME ATTACK"}</small></div>
       <div className="status"><span className={hud.gamepad ? "online" : ""}>{hud.gamepad ? "● GAMEPAD" : "● NO LOGIN"}</span><span>★ {hud.coins} <i>/ 60</i></span></div>
     </header>
     <div className="player-badge"><small>YOUR RUNNER</small><button onClick={editName} aria-label="プレイヤー名を変更">{guest?.name ?? "ゲスト"} <span>✎</span></button></div>
@@ -160,23 +161,24 @@ export default function SpeedrunGame() {
     {showGuide && hud.phase === "running" && !hud.paused && !editing && <div className={`route-hint ${hud.nextJump < 2 && hud.nextJump > -1 ? "jump-now" : ""}`} aria-label="回収ルートガイド"><span>◇ STAR LINE</span><b>{hud.nextJump < 2 && hud.nextJump > -1 ? "ここで長押しジャンプ！" : hud.nextJump < 25 ? `大ジャンプまで ${Math.max(0, Math.round(hud.nextJump))} m` : "水色のラインで全スターを目指そう"}</b><small>通常速度・大ジャンプの回収ルート</small></div>}
     {hud.paused && !editing && <div className="overlay settings-overlay"><div className="card settings-card" role="dialog" aria-modal="true" aria-labelledby="settings-title" onKeyDown={e => {
       if (e.key === "Escape") { e.stopPropagation(); game.current?.pause(false); }
-      if (e.key === "Tab") { const controls = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button,input')); const first = controls[0], last = controls.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } }
+      if (e.key === "Tab") { const controls = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button,input,a[href]')); const first = controls[0], last = controls.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } }
     }}>
       <div className="eyebrow">TAKE A BREATHER</div><h2 id="settings-title">{hud.phase === "running" || hud.phase === "respawning" ? "ひとやすみ。" : "ランの設定"}</h2><p className="settings-lead">キャラクターとガイドを選ぼう。<br />走行中の時間・位置・スターはそのまま。</p>
       <div className="character-options" role="group" aria-label="キャラクターを選ぶ">{(["hayate", "hikari"] as const).map(variant => <button key={variant} autoFocus={variant === "hayate"} aria-pressed={character === variant} onClick={() => configure(variant)} className={variant === "hikari" ? "hikari" : "hayate"}><RunnerPortrait female={variant === "hikari"} /><b>{variant === "hikari" ? "ヒカリ" : "ハヤテ"}</b><small>{variant === "hikari" ? "軽やかなポニーテール" : "風を切るランナー"}</small><span>{character === variant ? "✓ 選択中" : "選ぶ"}</span></button>)}</div>
       <label className="setting-switch"><span><b>全スター回収ルート</b><small>半透明のラインとジャンプの目印</small></span><input type="checkbox" checked={showGuide} onChange={e => configure(character, e.target.checked)} /></label>
       <label className="setting-switch"><span><b>BGM・効果音</b><small>ジャンプもスターも音で楽しむ</small></span><input type="checkbox" checked={!muted} onChange={e => configure(character, showGuide, !e.target.checked)} /></label>
       <p className="fineprint">ラインは前後ボタンを離した通常速度で、青い加速スターも取る想定。矢印の先端で長押しジャンプ。キャラによる性能差はありません。</p>
+      <a className="fx-credit" href="/effects" target="_blank" rel="noopener noreferrer">7つのエフェクトを見比べる ↗</a>
       <button className="primary" onClick={() => game.current?.pause(false)}>{hud.phase === "running" || hud.phase === "respawning" ? "▶ 走行を再開" : "設定を閉じる"}</button>
     </div></div>}
     {hud.phase === "ready" && !editing && !hud.paused && <div className="overlay intro"><div className="card">
       <div className="eyebrow">SKY RUSH / 640 M</div><h1>駆け上がれ。<br /><span>空へ、跳べ。</span></h1>
       <p className="lead">光る空中コースを、ジェットコースターのように。<br />上りはじわり、下りは一気に。左右とジャンプで駆け抜けよう。</p>
-      <div className="howto"><div><b>01 / STEER</b><span className="desktop-instruction">A D ・ 左スティック</span><span className="mobile-instruction">← 左右にスワイプ →</span></div><div><b>02 / JUMP</b><span className="desktop-instruction">SPACE ・ A / ×</span><span className="mobile-instruction">JUMP ボタン</span><small>タップで小・少し押して中・長押しで大</small></div><div><b>03 / SPEED</b><span className="desktop-instruction">W / S ・ スティック前後</span><span className="mobile-instruction">▲ 前 / ▼ 後ろ</span><small>押している間だけ1段階加減速</small></div><div><b>04 / COLLECT</b>緑のスターと青の加速<small>水色のラインが全回収の道しるべ</small></div></div>
+      <div className="howto"><div><b>01 / STEER</b><span className="desktop-instruction">A D ・ 左スティック</span><span className="mobile-instruction">← 左右にスワイプ →</span></div><div><b>02 / JUMP</b><span className="desktop-instruction">SPACE ・ A / ×</span><span className="mobile-instruction">JUMP ボタン</span><small>タップで小・少し押して中・長押しで大</small></div><div><b>03 / SPEED</b><span className="desktop-instruction">W / S ・ スティック前後</span><span className="mobile-instruction">▲ 前 / ▼ 後ろ</span><small>押している間だけ1段階加減速</small></div><div><b>04 / COLLECT</b>緑のスター・青の加速・橙の加速板<small>水色のラインが全回収の道しるべ</small></div></div>
       <button className="primary" disabled={Boolean(renderError)} onClick={e => { start(); e.currentTarget.blur(); }}>走り出す <span>→</span></button>
       {renderError && <p className="error" role="alert">{renderError}</p>}
       <p className="fineprint">ミスしてもチェックポイントから自動復帰。<br />名前は自動発行、記録も自動保存。ログイン不要。{hud.software && <><br />この端末ではGPUなしの簡易3D描画で動作しています。</>}</p>
-      <details><summary>コントローラー・音声について</summary><p>Bluetoothは端末の設定でペアリング後、ボタンを押してください。Start / Menuでポーズ・再開（ゴール後は最初から）。音声は最初の画面操作後に再生します。</p><a href="/audio-credits.txt" target="_blank" rel="noopener noreferrer">音声クレジット・ライセンス</a></details>
+      <details><summary>コントローラー・音声について</summary><p>Bluetoothは端末の設定でペアリング後、ボタンを押してください。Start / Menuでポーズ・再開（ゴール後は最初から）。音声は最初の画面操作後に再生します。</p><a href="/audio-credits.txt" target="_blank" rel="noopener noreferrer">音声クレジット・ライセンス</a> · <a href="/vfx/credits.txt" target="_blank" rel="noopener noreferrer">エフェクト素材のクレジット</a></details>
       {connectionNotice && <p className="fineprint" role="status">{connectionNotice} <button className="text-button" onClick={() => void loadGuest()}>再接続</button></p>}
     </div></div>}
     {hud.phase === "finished" && !editing && !hud.paused && result && hud.finishTime < 2.8 && <div className="finish-celebration" role="status"><small>{reaction.label}</small><b>{reaction.title}</b><span>★ {result.coins} / 60 · RETRY {result.deaths}</span></div>}

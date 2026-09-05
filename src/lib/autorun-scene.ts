@@ -1,10 +1,12 @@
 import * as THREE from "three";
 import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
-import { CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, IDEAL_ROUTE, JUMP_MARKERS, elevationAt, finishGrade, coursePoint, headLookYaw, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
+import { BOOST_PADS, speedMode, type SpeedMode, CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, IDEAL_ROUTE, JUMP_MARKERS, elevationAt, finishGrade, coursePoint, headLookYaw, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
 import { createRunner, type RunnerVariant } from "./runner-model";
+import { EffectsScene } from "./run-effects-scene";
+import type { FxAnchor } from "./run-effects";
 import { GameAudio } from "./game-audio";
 
-export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; jumpLevel: RunState["jumpLevel"]; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean; finishTime: number; slope: number; nextJump: number };
+export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; jumpLevel: RunState["jumpLevel"]; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean; finishTime: number; slope: number; nextJump: number; speedMode: SpeedMode };
 export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string; course: string; deaths: number };
 export type GameHandle = { start(): void; configure(character: RunnerVariant, guide: boolean): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost" | "slow", down: boolean): void; dispose(): void };
 
@@ -17,6 +19,11 @@ function frameAt(s: number) {
   return { position: new THREE.Vector3(p.x, p.y, p.z), right, up, quaternion };
 }
 function world(s: number, x = 0, y = 0) { const f = frameAt(s); return f.position.addScaledVector(f.right, x).addScaledVector(f.up, y); }
+
+function effectAnchor(s: number, x = 0, y = 0): FxAnchor {
+  const f = frameAt(s);
+  return { position: f.position.addScaledVector(f.right, x).addScaledVector(f.up, y), right: f.right, up: f.up, back: new THREE.Vector3(0, 0, 1).applyQuaternion(f.quaternion) };
+}
 
 export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void, onFinish: (result: RunResult) => void, onStart: () => void): GameHandle {
   let renderer: THREE.WebGLRenderer | SVGRenderer;
@@ -68,6 +75,16 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     const box = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, o.d), o.w > 8 ? pink : orange); box.position.y = o.h / 2; group.add(box);
     const border = new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry), new THREE.LineBasicMaterial({ color: 0xffe7c0 })); border.position.copy(box.position); group.add(border);
     place(group, o.s, o.x); return group;
+  });
+  const padGlows = BOOST_PADS.map(() => 0);
+  const boostPads = BOOST_PADS.map(pad => {
+    const group = new THREE.Group(), material = new THREE.MeshStandardMaterial({ color: 0x96551d, emissive: 0xff8e22, emissiveIntensity: .35 });
+    const board = new THREE.Mesh(new THREE.BoxGeometry(pad.w, .09, pad.d), material); board.position.y = .03; group.add(board);
+    const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xffdb8c });
+    for (const z of [-1, 0, 1]) for (const side of [-1, 1]) {
+      const arrow = new THREE.Mesh(new THREE.BoxGeometry(.13, .04, .8), arrowMaterial); arrow.position.set(side * .23, .1, z); arrow.rotation.y = -side * .65; group.add(arrow);
+    }
+    place(group, pad.s, pad.x); return { group, material, arrowMaterial };
   });
   const star = new THREE.Shape();
   for (let i = 0; i < 10; i++) { const angle = Math.PI / 2 + i * Math.PI / 5, radius = i % 2 ? .19 : .42; if (i === 0) star.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius); else star.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius); } star.closePath();
@@ -140,9 +157,12 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const keys = new Set<string>(), touches = new Set<string>();
   let swipeTarget: number | undefined;
   const audio = new GameAudio();
-  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, jumpLevel: state.jumpLevel, gamepad, input: inputType, paused, software, finishTime, slope: elevationAt(state.s).slope, nextJump: (JUMP_MARKERS.find(p => p.s > state.s - 1)?.s ?? COURSE_LENGTH + 100) - state.s });
+  const effects = new EffectsScene(software, window.matchMedia("(prefers-reduced-motion: reduce)").matches); scene.add(effects.root);
+  const shownPickups = new Set<number>();
+  let currentSpeedMode: SpeedMode = "normal";
+  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: currentSpeedMode === "star" || currentSpeedMode === "pad", height: state.y, jumpLevel: state.jumpLevel, gamepad, input: inputType, paused, software, finishTime, speedMode: currentSpeedMode, slope: elevationAt(state.s).slope, nextJump: (JUMP_MARKERS.find(p => p.s > state.s - 1)?.s ?? COURSE_LENGTH + 100) - state.s });
   const start = () => {
-    state = newRun(); finishTime = 0; clear(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false; swipeTarget = undefined;
+    state = newRun(); finishTime = 0; currentSpeedMode = "normal"; effects.model.clear(); shownPickups.clear(); padGlows.fill(0); clear(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false; swipeTarget = undefined;
     diamonds.forEach(d => { d.visible = true; }); audio.unlock(); onStart(); publish();
   };
   const onKeyDown = (e: KeyboardEvent) => {
@@ -192,8 +212,21 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
       accumulator += dt;
       while (accumulator >= STEP) {
         const events = stepRun(state, input); accumulator -= STEP; jumpQueued = false; input.jumpPressed = false;
+        currentSpeedMode = speedMode(state, input);
+        const anchor = effectAnchor(state.s, state.x, state.y);
+        effects.model.advance(STEP, anchor, currentSpeedMode, state.phase === "running", state.grounded, state.speed);
+        padGlows.forEach((value, i) => { padGlows[i] = Math.max(0, value - STEP); });
         events.forEach(event => {
           audio.play(event);
+          if (event === "coin" || event === "boost") {
+            for (const i of state.collected) if (!shownPickups.has(i)) {
+              shownPickups.add(i); const item = ITEMS[i];
+              effects.model.event(item.boost ? "boost" : "coin", effectAnchor(item.s, item.x, item.y));
+            }
+          } else if (event === "pad") {
+            const p = BOOST_PADS[state.lastPad]; padGlows[state.lastPad] = .6;
+            effects.model.event(event, effectAnchor(p.s, p.x));
+          } else effects.model.event(event, event === "jump" ? effectAnchor(state.s, state.x) : anchor, finishGrade(state.coins, state.deaths));
           if (event === "hit") { cameraSnap = true; swipeTarget = undefined; input.targetX = undefined; }
           if (event === "finish") { onFinish({ timeMs: Math.round(state.time * 1000), input: inputType, coins: state.coins, runId, course: COURSE_ID, deaths: state.deaths }); publish(); }
         });
@@ -233,6 +266,10 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     camera.position.lerp(cameraTarget, 1 - Math.exp(-8 * dt)); smoothLook.lerp(lookTarget, 1 - Math.exp(-7 * dt)); camera.lookAt(smoothLook);
     const fov = state.phase === "finished" || paused ? 52 : state.speed > RUN_SPEED * 1.5 ? 76 : state.boost > 0 ? 71 : state.speed > RUN_SPEED ? 68 : 64;
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix();
+    boostPads.forEach((pad, i) => { pad.material.emissiveIntensity = .35 + padGlows[i] * 4; pad.arrowMaterial.color.setHex(padGlows[i] > 0 ? 0xffffff : 0xffdb8c); });
+    effects.render(camera);
+    renderer.domElement.setAttribute("data-vfx-particles", String(effects.model.count));
+    renderer.domElement.setAttribute("data-speed-mode", currentSpeedMode);
     renderer.render(scene, camera);
     if (now - hudAt > 90) { publish(); hudAt = now; }
   };
@@ -243,7 +280,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     slide(fraction) { if (paused || state.phase !== "running" || !Number.isFinite(fraction)) return; swipeTarget = slideTarget(swipeTarget ?? state.x, fraction); inputType = "touch"; },
     touch(key, down) { if (down && !paused && state.phase === "running") { touches.add(key); if (key === "jump") jumpQueued = true; inputType = "touch"; audio.unlock(); } else touches.delete(key); },
     dispose() {
-      disposed = true; cancelAnimationFrame(frame); resize.disconnect(); audio.dispose();
+      disposed = true; cancelAnimationFrame(frame); resize.disconnect(); audio.dispose(); effects.dispose();
       window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", clear); document.removeEventListener("visibilitychange", visibility);
       const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
       scene.traverse(object => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) { geometries.add(object.geometry); (Array.isArray(object.material) ? object.material : [object.material]).forEach(m => materials.add(m)); } });

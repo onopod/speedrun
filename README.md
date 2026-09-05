@@ -23,6 +23,18 @@
 - ポーズ設定でハヤテ / 女性ランナーのヒカリを選択。ヒカリはオリジナルのボーン付き3Dモデル、ポニーテールとシアンのウェア。性能は共通。キャラ・ガイド・音声設定は端末に保持し、変更しても位置・タイム・スターを維持します。
 - ゴール後はカメラへ向き直り、最初の2.8秒はキャラの演出を見せ、その後に結果カードを表示。スター48個以上かつミス2回以内は両手で喜ぶジャンプ、24個以上かつミス6回以内は手を振る、それ以外は照れた頭かきとうなずき。評価はタイムランキングとは独立です。
 
+## Visual effects
+
+7 scenes have separate VFX: subtle running footsteps; lime manual-acceleration trails and screen-edge speed lines; smoke at takeoff/landing plus medium/large jump sparkles; gold/lime normal-star pickup; cyan boost-star burst/ring/trails; orange boost-pad burst/ring/board flash; and grade-scaled finish confetti/stars.
+
+Kenney Particle Pack and Smoke Particles (CC0) supply three unmodified local PNGs (about 182 kB total). Original license files, source URLs and SHA-256 checksums are in `public/vfx/`. Public credits: `/vfx/credits.txt`. Textures are served with the game rather than relying on a third-party runtime CDN. Rings, trails, confetti and particle motion are original code.
+
+`RunEffects` keeps at most 192 particles (80 in SVG fallback), reuses slots, freezes while paused, stops footsteps in the air and clears on restart/death. WebGL draws six instanced batches; SVG fallback uses simplified geometry. Reduced-motion preference reduces particle emission and disables the screen-edge lines. The selected character has no effect on physics or particle behavior.
+
+Four optional boost pads at 28/174/330/490m lie outside the full-star guide. Grounded entry triggers once per contact and grants 1.2s at the existing manual-acceleration speed (20.8 before hill adjustment). Boosts never stack; braking and opposite-input cancellation still apply, and blue-star acceleration takes precedence. The verified guide trajectory and v5 score floor remain unchanged.
+
+`/effects` is an interactive VFX gallery using the same renderer, assets and articulated runner. It can replay all seven scenes and all three finish grades without posting scores. Accessible from pause settings.
+
 ## Local development
 
 ```bash
