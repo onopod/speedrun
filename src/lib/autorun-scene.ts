@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
-import { CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, coursePoint, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
+import { CHECKPOINTS, COURSE_ID, COURSE_LENGTH, GAPS, ITEMS, OBSTACLES, ROAD_HALF_WIDTH, RUN_SPEED, STEP, coursePoint, headLookYaw, newRun, obstacleX, slideTarget, stepRun, type RunState, type Input } from "./autorun";
 import { createRunner } from "./runner-model";
 import { GameAudio } from "./game-audio";
 
-export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean };
+export type Hud = { phase: RunState["phase"]; time: number; distance: number; checkpoint: number; coins: number; deaths: number; speed: number; boost: boolean; height: number; jumpLevel: RunState["jumpLevel"]; gamepad: boolean; input: "keyboard" | "gamepad" | "touch"; paused: boolean; software: boolean };
 export type RunResult = { timeMs: number; coins: number; input: Hud["input"]; runId: string; course: string };
-export type GameHandle = { start(): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost", down: boolean): void; dispose(): void };
+export type GameHandle = { start(): void; mute(value: boolean): void; pause(value: boolean): void; slide(fraction: number): void; touch(key: "jump" | "boost" | "slow", down: boolean): void; dispose(): void };
 
 function frameAt(s: number) {
   const p = coursePoint(s), a = coursePoint(s - .1), b = coursePoint(s + .1);
@@ -112,7 +112,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
   const keys = new Set<string>(), touches = new Set<string>();
   let swipeTarget: number | undefined;
   const audio = new GameAudio();
-  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, gamepad, input: inputType, paused, software });
+  const publish = () => onHud({ phase: state.phase, time: state.time * 1000, distance: state.s, checkpoint: state.checkpoint, coins: state.coins, deaths: state.deaths, speed: state.speed, boost: state.boost > 0, height: state.y, jumpLevel: state.jumpLevel, gamepad, input: inputType, paused, software });
   const start = () => {
     state = newRun(); runId = crypto.randomUUID(); inputType = "keyboard"; accumulator = 0; cameraSnap = true; paused = false; jumpQueued = false; swipeTarget = undefined;
     diamonds.forEach(d => { d.visible = true; }); audio.unlock(); onStart(); publish();
@@ -145,22 +145,24 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     const a = Boolean(pad?.buttons[0]?.pressed), menu = Boolean(pad?.buttons[9]?.pressed);
     const editing = document.activeElement instanceof HTMLElement && Boolean(document.activeElement.closest("input,textarea,[contenteditable='true']"));
     if (!editing && ((a && !padJump && state.phase === "ready") || (menu && !padStart))) { start(); inputType = "gamepad"; }
+    if (a && !padJump && !editing) jumpQueued = true;
     padJump = a; padStart = menu;
     const axis = Math.abs(pad?.axes[0] ?? 0) > .18 ? pad!.axes[0] : 0;
     const vertical = Math.abs(pad?.axes[1] ?? 0) > .18 ? pad!.axes[1] : 0;
     if (!editing && pad && (axis || vertical || pad.buttons.some(b => b.pressed))) inputType = "gamepad";
     const input: Input = {
       steer: editing ? 0 : Number(keys.has("KeyD") || keys.has("ArrowRight")) - Number(keys.has("KeyA") || keys.has("ArrowLeft")) + axis + Number(Boolean(pad?.buttons[15]?.pressed)) - Number(Boolean(pad?.buttons[14]?.pressed)),
-      jump: !editing && (jumpQueued || keys.has("Space") || a || touches.has("jump")),
+      jump: !editing && (keys.has("Space") || a || touches.has("jump")),
+      jumpPressed: !editing && jumpQueued,
       boost: !editing && (keys.has("KeyW") || keys.has("ArrowUp") || keys.has("ShiftLeft") || Boolean(pad?.buttons[1]?.pressed) || Boolean(pad?.buttons[12]?.pressed) || vertical < -.5 || touches.has("boost")),
-      slow: !editing && (keys.has("KeyS") || keys.has("ArrowDown") || Boolean(pad?.buttons[13]?.pressed) || vertical > .5),
+      slow: !editing && (keys.has("KeyS") || keys.has("ArrowDown") || Boolean(pad?.buttons[13]?.pressed) || vertical > .5 || touches.has("slow")),
     };
     if (input.steer) swipeTarget = undefined;
     input.targetX = editing ? undefined : swipeTarget;
     if (!paused) {
       accumulator += dt;
       while (accumulator >= STEP) {
-        const events = stepRun(state, input); accumulator -= STEP; jumpQueued = false;
+        const events = stepRun(state, input); accumulator -= STEP; jumpQueued = false; input.jumpPressed = false;
         events.forEach(event => {
           audio.play(event);
           if (event === "hit") { cameraSnap = true; swipeTarget = undefined; input.targetX = undefined; }
@@ -173,7 +175,7 @@ export function createAutorunScene(mount: HTMLElement, onHud: (hud: Hud) => void
     runner.root.quaternion.copy(f.quaternion);
     runner.root.visible = state.phase !== "respawning" || Math.sin(now / 55) > 0;
     const leaning = swipeTarget === undefined ? input.steer : Math.max(-1, Math.min(1, (swipeTarget - state.x) * 2));
-    runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, leaning, state.speed);
+    runner.animate(state.time, state.phase === "running" && !paused, !state.grounded, leaning, state.speed, headLookYaw(state));
     shadow.position.copy(world(state.s, state.x, .035)); shadow.visible = state.y >= 0; shadow.scale.setScalar(Math.max(.3, 1 - state.y * .1));
     obstacles.forEach((o, i) => { if (OBSTACLES[i].moving) o.position.copy(world(OBSTACLES[i].s, obstacleX(OBSTACLES[i], state.time))); });
     diamonds.forEach((diamond, i) => { diamond.visible = !state.collected.has(i) && (!software || Math.abs(ITEMS[i].s - state.s) < 100); diamond.rotation.y = state.time * 2 + i; });

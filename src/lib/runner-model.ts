@@ -2,8 +2,8 @@ import * as THREE from "three";
 
 // Original articulated model: all limbs attach to bones and face local -Z.
 export function createRunner() {
-  const root = new THREE.Group();
-  const body = new THREE.Bone(); body.position.y = 1.12; root.add(body);
+  const root = new THREE.Group(); root.name = "runner";
+  const body = new THREE.Bone(); body.name = "torso"; body.position.y = 1.12; root.add(body);
   const dark = new THREE.MeshStandardMaterial({ color: 0x17211d, roughness: .65 });
   const hair = new THREE.MeshStandardMaterial({ color: 0x131714, roughness: .9 });
   const green = new THREE.MeshStandardMaterial({ color: 0x94ff35, emissive: 0x377e0a, emissiveIntensity: .6 });
@@ -19,7 +19,7 @@ export function createRunner() {
     const stripe = mesh(body, new THREE.BoxGeometry(.075, .42, .025), green, side * .11, .24, .39);
     stripe.rotation.z = side * -.48;
   }
-  const head = new THREE.Bone(); head.position.set(0, .95, -.025); body.add(head);
+  const head = new THREE.Bone(); head.name = "head"; head.position.set(0, .95, -.025); body.add(head);
   mesh(head, new THREE.SphereGeometry(.48, 16, 12), skin, 0, 0, 0);
   const cap = mesh(head, new THREE.SphereGeometry(.51, 16, 12), hair, 0, .13, .1); cap.scale.set(1, .94, .95);
   for (let i = 0; i < 7; i++) {
@@ -51,11 +51,11 @@ export function createRunner() {
   }
   return {
     root,
-    animate(time: number, running: boolean, airborne: boolean, steer: number, speed: number) {
+    animate(time: number, running: boolean, airborne: boolean, steer: number, speed: number, lookYaw = 0) {
       const stride = Math.sin(time * (speed > 14 ? 17 : 13));
       body.position.y = 1.12 + (running && !airborne ? Math.abs(stride) * .09 : 0);
       body.rotation.set(-.08, 0, -steer * .1);
-      head.rotation.y = -steer * .1;
+      head.rotation.y = lookYaw - steer * .1;
       for (let i = 0; i < 2; i++) {
         const swing = (i === 0 ? stride : -stride) * (running ? .82 : 0);
         hips[i].rotation.x = airborne ? (i ? .35 : -.8) : swing;
