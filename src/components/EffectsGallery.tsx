@@ -63,6 +63,7 @@ export default function EffectsGallery() {
       const running = active === "run" || mode !== "normal";
       effects.model.advance(dt, anchor(y), mode, running, y === 0, running && mode !== "normal" ? 20.8 : 15.6);
       runner.root.position.y = y; runner.root.rotation.y = active === "finish" ? Math.PI * Math.min(1, elapsed / .7) : running || active === "jump" ? 0 : Math.PI;
+      camera.position.y = 4.3 + y * .7; camera.lookAt(0, 1.65 + y * .7, 0);
       if (active === "finish") runner.celebrate(elapsed, result); else runner.animate(elapsed, running, y > 0, 0, mode === "normal" ? 15.6 : 20.8);
       (board.material as THREE.MeshBasicMaterial).color.setHex(elapsed < .3 ? 0xffe2a3 : 0xa96622);
       effects.render(camera); renderer.domElement.setAttribute("data-vfx-particles", String(effects.model.count)); renderer.domElement.setAttribute("data-effect", active);

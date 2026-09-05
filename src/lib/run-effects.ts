@@ -52,8 +52,8 @@ export class RunEffects {
   event(event: RunEvent, anchor: FxAnchor, grade: FinishGrade = "good") {
     switch (event) {
       case "coin":
-        this.burst(anchor, 9, "star", FX_COLORS.gold, 3, { life: .55, size: .34, attract: true, spin: 2 });
-        this.burst(anchor, 6, "light", FX_COLORS.manual, 2, { size: .5, life: .4, attract: true }); break;
+        this.burst(anchor, 9, "star", FX_COLORS.gold, 4.5, { life: .75, size: .42, attract: true, spin: 2 });
+        this.burst(anchor, 6, "light", FX_COLORS.manual, 3.5, { size: .5, life: .6, attract: true }); break;
       case "boost":
         this.burst(anchor, 20, "star", FX_COLORS.star, 3.5, { size: .4, life: .75, attract: true });
         this.ring(anchor, FX_COLORS.star, 6); break;
@@ -89,7 +89,7 @@ export class RunEffects {
       p.vy -= p.gravity * dt;
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
       p.angle += p.spin * dt;
-      if (p.attract && p.age > .14) {
+      if (p.attract && p.age > .24) {
         const follow = 1 - Math.exp(-12 * dt);
         p.x += (anchor.position.x - p.x) * follow;
         p.y += (anchor.position.y + 1.1 - p.y) * follow;
